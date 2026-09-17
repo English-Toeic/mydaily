@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils";
 import { useTTS } from "@/hooks/useTTS";
 import {
@@ -44,7 +44,7 @@ export function LessonView({
   const [phase, setPhase] = useState<Phase>("listening");
   const [result, setResult] = useState<Result>("idle");
   const { speak, speaking } = useTTS();
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const sentence = lesson.sentences[index];
   const learnedCount = learnedIds.length;
@@ -244,14 +244,15 @@ export function LessonView({
 
           {/* Ô nhập */}
           <div className="space-y-2">
-            <Input
+            <Textarea
+              rows={4}
               ref={inputRef}
               value={answer}
               disabled={phase === "revealed"}
               onChange={(e) => { setAnswer(e.target.value); onActivity(); setResult("idle"); }}
               placeholder="Nhập câu tiếng Anh bạn nghe được..."
               className={cn(
-                "h-12 text-base",
+                "w-full min-h-24 text-base resize-none",
                 result === "wrong" && "border-red-500 focus-visible:ring-red-500"
               )}
               autoFocus
