@@ -5,25 +5,49 @@ import { SectionList } from "@/components/SectionList";
 import { LessonList } from "@/components/LessonList";
 import { LessonView } from "@/components/LessonView";
 import { StatsView } from "@/components/StatsView";
-// import { sections } from "@/data/lessons";
+import { AdminView } from "./components/AdminView";
 import { useSections } from "@/hooks/useSections";
 import { useProgress } from "@/hooks/useProgress";
 import { useStudyTracker } from "@/hooks/useStudyTracker";
 import { formatDuration } from "@/lib/utils";
-import { BarChart3, Flame, GraduationCap, Loader2, Settings } from "lucide-react";
-import { AdminView } from "./components/AdminView";
+import { cn } from "@/lib/utils";
+import {
+  BarChart3, Flame, GraduationCap, Loader2, Settings, Clock, AlertCircle, RefreshCw,
+  BookMarked,
+} from "lucide-react";
+import { useVocab } from "./hooks/useVocab";
+import { VocabView } from "./components/VocabView";
+import { VocabStudyView } from "./components/VocabStudyView";
+import { VocabAdminView } from "./components/VocabAdminView";
 
 type View =
   | { name: "sections" }
+  | { name: "vocab" }
+  | { name: "vocabStudy"; deckId: number }
   | { name: "lessons"; sectionId: number }
   | { name: "lesson"; lessonId: number }
   | { name: "stats" }
-  | { name: "admin"};
+  | { name: "admin" }
+  | { name: "vocabAdmin" };
 
 export function MainApp() {
   const [view, setView] = useState<View>({ name: "sections" });
-  const { sections, loading, error, refetch } = useSections(); 
+  const { sections, loading, error, refetch } = useSections();
   const { getLesson, markSentenceLearned, openLesson } = useProgress();
+  const {
+    decks,
+    loading: vocabLoading,
+    error: vocabError,
+    refetch: refetchVocab,
+    gradeWord,
+    addDeck,
+    updateDeck,
+    deleteDeck,
+    addWord,
+    updateWord,
+    deleteWord,
+    addWordsBulk,
+  } = useVocab();
 
   const inLesson = view.name === "lesson";
   const {
@@ -50,67 +74,124 @@ export function MainApp() {
     [view, sections]
   );
 
-
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      {/* Header */}
-      <header className="sticky top-0 z-10 border-b bg-background/80 backdrop-blur">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
-          <button
-            onClick={() => setView({ name: "sections" })}
-            className="flex items-center gap-2 font-bold"
-          >
-            <GraduationCap className="h-6 w-6 text-primary" />
-            <span>Dev English</span>
-          </button>
-
-          <div className="flex items-center gap-2">
-            <div className="hidden items-center gap-4 text-sm sm:flex">
-              <span className="flex items-center gap-1 text-orange-500">
-                <Flame className="h-4 w-4" /> {streak}
+    <div className="min-h-screen bg-linear-to-b from-background to-muted/20 text-foreground">
+      {/* Header — ẩn khi đang học để tập trung */}
+      {!inLesson && (
+        <header className="sticky top-0 z-20 border-b bg-background/70 backdrop-blur-lg">
+          <div className="mx-auto flex max-w-5xl items-center justify-between gap-2 px-4 py-3">
+            <button
+              onClick={() => setView({ name: "sections" })}
+              className="flex items-center gap-2 font-bold transition-opacity hover:opacity-80"
+            >
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
+                <GraduationCap className="h-5 w-5 text-primary" />
               </span>
-              <span className="text-muted-foreground">
-                {formatDuration(todaySeconds)} hôm nay
+              <span className="hidden sm:inline">Dev English</span>
+            </button>
+
+            {/* Stats chips — hiện cả trên mobile */}
+            <div className="flex items-center gap-1.5 rounded-full border bg-background px-1 py-1 sm:gap-3 sm:px-3">
+              <span className="flex items-center gap-1 rounded-full px-2 py-1 text-sm font-medium text-orange-500">
+                <Flame className="h-4 w-4" />
+                {streak}
+              </span>
+              <span className="h-4 w-px bg-border" />
+              <span className="flex items-center gap-1 px-2 py-1 text-sm text-muted-foreground">
+                <Clock className="h-4 w-4" />
+                {formatDuration(todaySeconds)}
               </span>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setView({ name: "stats" })}
-            >
-              <BarChart3 className="mr-1 h-4 w-4" /> Thống kê
-            </Button>
 
-            <Button variant="outline" size="sm" onClick={() => setView({ name: "admin" })}>
-              <Settings className="mr-1 h-4 w-4" /> Quản lý
-            </Button>
+            <div className="flex items-center gap-1.5">
+              <Button
+                variant={view.name === "stats" ? "default" : "ghost"}
+                size="icon"
+                className="sm:hidden"
+                onClick={() => setView({ name: "stats" })}
+              >
+                <BarChart3 className="h-4 w-4" />
+              </Button>
+              <Button
+                variant={view.name === "admin" ? "default" : "ghost"}
+                size="icon"
+                className="sm:hidden"
+                onClick={() => setView({ name: "admin" })}
+              >
+                <Settings className="h-4 w-4" />
+              </Button>
+
+              {/* Desktop: nút có chữ */}
+              <Button
+                variant={view.name === "stats" ? "default" : "outline"}
+                size="sm"
+                className="hidden sm:inline-flex"
+                onClick={() => setView({ name: "stats" })}
+              >
+                <BarChart3 className="mr-1 h-4 w-4" /> Thống kê
+              </Button>
+              <Button
+                variant={view.name === "admin" ? "default" : "outline"}
+                size="sm"
+                className="hidden sm:inline-flex"
+                onClick={() => setView({ name: "admin" })}
+              >
+                <Settings className="mr-1 h-4 w-4" /> Quản lý
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="gap-1.5"
+                onClick={() => setView({ name: "vocab" })}
+              >
+                <BookMarked className="h-4 w-4" />
+                Từ vựng
+              </Button>
+            </div>
           </div>
-        </div>
-      </header>
+        </header>
+      )}
 
       {/* Content */}
-      <main className="mx-auto max-w-5xl px-4 py-6">
-        {/* Loading / Error state */}
+      <main
+        className={cn(
+          "mx-auto max-w-5xl px-4 py-6",
+          inLesson && "max-w-3xl" // bài học hẹp hơn cho dễ đọc
+        )}
+      >
+        {/* Loading */}
         {loading && (
-          <div className="flex items-center justify-center py-20 text-muted-foreground">
-            <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-            Đang tải dữ liệu...
+          <div className="flex flex-col items-center justify-center gap-3 py-24 text-muted-foreground">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <p className="text-sm">Đang tải dữ liệu...</p>
           </div>
         )}
 
+        {/* Error */}
         {error && (
-          <div className="rounded-md border border-destructive/40 bg-destructive/5 p-4 text-destructive">
-            Lỗi tải dữ liệu: {error}
+          <div className="mx-auto max-w-md rounded-xl border border-destructive/30 bg-destructive/5 p-6 text-center">
+            <AlertCircle className="mx-auto mb-3 h-10 w-10 text-destructive" />
+            <p className="mb-1 font-semibold text-destructive">Không tải được dữ liệu</p>
+            <p className="mb-4 text-sm text-muted-foreground">{error}</p>
+            <Button variant="outline" size="sm" onClick={refetch}>
+              <RefreshCw className="mr-1 h-4 w-4" /> Thử lại
+            </Button>
           </div>
         )}
 
+        {/* Views — thêm animation fade-in */}
         {!loading && !error && (
-          <>
+          <div key={view.name} className="animate-in fade-in slide-in-from-bottom-2 duration-300">
             {view.name === "sections" && (
               <>
-                <h1 className="mb-6 text-2xl font-bold">
-                  Học tiếng Anh cho Developer
-                </h1>
+                <div className="mb-6">
+                  <h1 className="text-2xl font-bold sm:text-3xl">
+                    Học tiếng Anh cho Developer
+                  </h1>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Luyện nghe & gõ lại câu tiếng Anh thực chiến
+                  </p>
+                </div>
                 <SectionList
                   sections={sections}
                   getLesson={getLesson}
@@ -167,7 +248,56 @@ export function MainApp() {
                 onChanged={refetch}
               />
             )}
-          </>
+
+            {view.name === "vocab" && (
+              <VocabView
+                decks={decks}
+                loading={vocabLoading}
+                error={vocabError}
+                onBack={() => setView({ name: "sections" })}
+                onRefetch={refetchVocab}
+                onStudy={(deckId) => setView({ name: "vocabStudy", deckId })}
+                onAdmin={() => setView({ name: "vocabAdmin" })}
+              />
+            )}
+
+            {view.name === "vocabStudy" && (() => {
+              const deck = decks.find((d) => d.id === view.deckId);
+              if (!deck) {
+                return (
+                  <div className="mx-auto max-w-md rounded-xl border p-6 text-center">
+                    <p className="mb-4 text-sm text-muted-foreground">
+                      Không tìm thấy bộ từ vựng này.
+                    </p>
+                    <Button variant="outline" size="sm" onClick={() => setView({ name: "vocab" })}>
+                      Quay lại
+                    </Button>
+                  </div>
+                );
+              }
+              return (
+                <VocabStudyView
+                  deck={deck}
+                  onGrade={gradeWord}
+                  onBack={() => setView({ name: "vocab" })}
+                />
+              );
+            })()}
+
+            {view.name === "vocabAdmin" && (
+              <VocabAdminView
+                decks={decks}
+                onBack={() => setView({ name: "vocab" })}
+                addDeck={addDeck}
+                updateDeck={updateDeck}
+                deleteDeck={deleteDeck}
+                addWord={addWord}
+                updateWord={updateWord}
+                deleteWord={deleteWord}
+                addWordsBulk={addWordsBulk}
+              />
+            )}
+          </div>
         )}
       </main>
     </div>
