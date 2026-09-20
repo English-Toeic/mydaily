@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea"
-import { cn } from "@/lib/utils";
+import { cn, isAnswerCorrect, normalize } from "@/lib/utils";
 import { useTTS } from "@/hooks/useTTS";
 import {
   ArrowLeft, Volume2, Check, X, RotateCcw, ChevronRight, ChevronLeft,
@@ -25,7 +25,11 @@ type Phase = "listening" | "revealed";
 type Result = "idle" | "wrong";
 
 export function LessonView({
-  lesson, learnedIds, onBack, onCorrect, onActivity,
+  lesson,
+  learnedIds,
+  onBack,
+  onCorrect,
+  onActivity,
 }: Props) {
   const { getLesson, resetLesson } = useProgress();
   const progress = getLesson(lesson.id);
@@ -52,9 +56,6 @@ export function LessonView({
   const isLast = index === total - 1;
   const isCompleted = progress.status === "completed";
 
-  const normalize = (s: string) =>
-    s.toLowerCase().replace(/[.,!?;:'"]/g, "").replace(/\s+/g, " ").trim();
-
   const playAudio = useCallback(() => {
     speak(sentence.english);
   }, [speak, sentence.english]);
@@ -80,11 +81,11 @@ export function LessonView({
 
   const check = useCallback(() => {
     onActivity();
-    const ok = normalize(answer) === normalize(sentence.english);
+    const ok = isAnswerCorrect(answer, sentence.english);
     if (ok) {
       setPhase("revealed");
       setResult("idle");
-      onCorrect(sentence.id); // 👈 cha gọi markSentenceLearned
+      onCorrect(sentence.id);
     } else {
       setResult("wrong");
     }
@@ -172,8 +173,12 @@ export function LessonView({
       {/* Progress */}
       <div className="space-y-2">
         <div className="flex justify-between text-sm text-muted-foreground">
-          <span>Câu {index + 1}/{total}</span>
-          <span>{learnedCount} câu đã thuộc · {percent}%</span>
+          <span>
+            Câu {index + 1}/{total}
+          </span>
+          <span>
+            {learnedCount} câu đã thuộc · {percent}%
+          </span>
         </div>
         <Progress value={percent} className="h-2" />
       </div>
@@ -182,7 +187,9 @@ export function LessonView({
       {isCompleted ? (
         <Card className="p-8 text-center space-y-4">
           <div className="text-4xl">🎉</div>
-          <h3 className="text-xl font-semibold">Bạn đã hoàn thành bài này!</h3>
+          <h3 className="text-xl font-semibold">
+            Bạn đã hoàn thành bài này!
+          </h3>
           <p className="text-muted-foreground">
             Đã thuộc {learnedCount}/{total} câu.
           </p>
@@ -203,10 +210,15 @@ export function LessonView({
               <Button
                 size="lg"
                 variant={phase === "revealed" ? "secondary" : "default"}
-                onClick={() => { onActivity(); playAudio(); }}
+                onClick={() => {
+                  onActivity();
+                  playAudio();
+                }}
                 className="h-16 w-16 rounded-full"
               >
-                <Volume2 className={cn("h-7 w-7", speaking && "animate-pulse")} />
+                <Volume2
+                  className={cn("h-7 w-7", speaking && "animate-pulse")}
+                />
               </Button>
               <p className="text-sm text-muted-foreground">
                 Nghe và gõ lại câu tiếng Anh
@@ -216,7 +228,9 @@ export function LessonView({
                 <span>nghe lại</span>
                 <span className="mx-1">·</span>
                 <kbd className="rounded border bg-muted px-2 py-1">Enter</kbd>
-                <span>{phase === "listening" ? "kiểm tra" : "câu tiếp theo"}</span>
+                <span>
+                  {phase === "listening" ? "kiểm tra" : "câu tiếp theo"}
+                </span>
               </div>
             </div>
 
@@ -229,7 +243,10 @@ export function LessonView({
                   <Button
                     variant="ghost"
                     size="icon"
-                    onClick={() => { onActivity(); playAudio(); }}
+                    onClick={() => {
+                      onActivity();
+                      playAudio();
+                    }}
                   >
                     <RotateCcw className="h-4 w-4" />
                   </Button>
@@ -249,11 +266,16 @@ export function LessonView({
               ref={inputRef}
               value={answer}
               disabled={phase === "revealed"}
-              onChange={(e) => { setAnswer(e.target.value); onActivity(); setResult("idle"); }}
+              onChange={(e) => {
+                setAnswer(e.target.value);
+                onActivity();
+                setResult("idle");
+              }}
               placeholder="Nhập câu tiếng Anh bạn nghe được..."
               className={cn(
                 "w-full min-h-24 text-base resize-none",
-                result === "wrong" && "border-red-500 focus-visible:ring-red-500"
+                result === "wrong" &&
+                  "border-red-500 focus-visible:ring-red-500"
               )}
               autoFocus
               autoComplete="off"
@@ -262,8 +284,8 @@ export function LessonView({
             {result === "wrong" && (
               <div>
                 <div className="flex items-center gap-2 text-sm text-red-500">
-                  <X className="h-4 w-4" /> Chưa đúng, nghe lại (Ctrl) và thử lại nhé!
-                  
+                  <X className="h-4 w-4" /> Chưa đúng, nghe lại (Ctrl) và thử
+                  lại nhé!
                 </div>
                 <p className="font-mono tracking-wide text-foreground">
                   {buildHint(sentence.english, answer)}
@@ -277,19 +299,33 @@ export function LessonView({
               </Button>
             ) : (
               <Button className="w-full" onClick={next} disabled={isLast}>
-                {isLast ? "Đã hoàn thành bài học 🎉" : "Câu tiếp theo"}
+                {isLast
+                  ? "Đã hoàn thành bài học 🎉"
+                  : "Câu tiếp theo"}
                 {!isLast && <ChevronRight className="ml-1 h-4 w-4" />}
-                {!isLast && <span className="ml-1 opacity-60">(Enter)</span>}
+                {!isLast && (
+                  <span className="ml-1 opacity-60">(Enter)</span>
+                )}
               </Button>
             )}
           </div>
 
           {/* Điều hướng phụ */}
           <div className="flex justify-between">
-            <Button variant="outline" size="sm" onClick={prev} disabled={index === 0}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={prev}
+              disabled={index === 0}
+            >
               <ChevronLeft className="mr-1 h-4 w-4" /> Câu trước
             </Button>
-            <Button variant="outline" size="sm" onClick={next} disabled={isLast}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={next}
+              disabled={isLast}
+            >
               Câu sau <ChevronRight className="ml-1 h-4 w-4" />
             </Button>
           </div>
