@@ -10,15 +10,17 @@ import { useTTS } from "@/hooks/useTTS";
 import {
   ArrowLeft, Volume2, Check, X, RotateCcw, ChevronRight, ChevronLeft,
 } from "lucide-react";
-import type { Lesson } from "@/types";
-import { useProgress } from "@/hooks/useProgress";
+import type { Lesson, LessonProgress } from "@/types";
+// import { useProgress } from "@/hooks/useProgress";
 
 interface Props {
   lesson: Lesson;
-  learnedIds: number[];
+  progress: LessonProgress;
+  // learnedIds: number[];
   onBack: () => void;
   onCorrect: (sentenceId: number) => void;
   onActivity: () => void;
+  onReset: () => void;
 }
 
 type Phase = "listening" | "revealed";
@@ -26,14 +28,19 @@ type Result = "idle" | "wrong";
 
 export function LessonView({
   lesson,
-  learnedIds,
+  progress,
   onBack,
   onCorrect,
   onActivity,
+  onReset
 }: Props) {
-  const { getLesson, resetLesson } = useProgress();
-  const progress = getLesson(lesson.id);
+  // const { getLesson, resetLesson } = useProgress();
+  // const progress = getLesson(lesson.id);
   const total = lesson.sentences.length;
+  const learnedIds = progress.learnedSentenceIds;
+  const learnedCount = learnedIds.length;
+  const percent = Math.round((learnedCount / total) * 100);
+  const isCompleted = progress.status === "completed";
 
   // 👇 Tính câu bắt đầu = câu đầu tiên CHƯA học
   const startIndex = useMemo(() => {
@@ -51,10 +58,10 @@ export function LessonView({
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const sentence = lesson.sentences[index];
-  const learnedCount = learnedIds.length;
-  const percent = Math.round((learnedCount / total) * 100);
+  // const learnedCount = learnedIds.length;
+  // const percent = Math.round((learnedCount / total) * 100);
   const isLast = index === total - 1;
-  const isCompleted = progress.status === "completed";
+  // const isCompleted = progress.status === "completed";
 
   const playAudio = useCallback(() => {
     speak(sentence.english);
@@ -103,12 +110,12 @@ export function LessonView({
 
   // 👇 Học lại từ đầu
   const handleReset = useCallback(() => {
-    resetLesson(lesson.id);
+    onReset();
     setIndex(0);
     setAnswer("");
     setPhase("listening");
     setResult("idle");
-  }, [resetLesson, lesson.id]);
+  }, [onReset]);
 
   // Phím tắt
   useEffect(() => {

@@ -33,7 +33,7 @@ type View =
 export function MainApp() {
   const [view, setView] = useState<View>({ name: "sections" });
   const { sections, loading, error, refetch } = useSections();
-  const { getLesson, markSentenceLearned, openLesson } = useProgress();
+  const { getLesson, markSentenceLearned, openLesson, resetLesson } = useProgress();
   const {
     decks,
     loading: vocabLoading,
@@ -217,7 +217,7 @@ export function MainApp() {
             {view.name === "lesson" && currentLesson && (
               <LessonView
                 lesson={currentLesson}
-                learnedIds={getLesson(currentLesson.id).learnedSentenceIds}
+                progress={getLesson(currentLesson.id)}
                 onBack={() =>
                   setView({
                     name: "lessons",
@@ -234,6 +234,7 @@ export function MainApp() {
                   )
                 }
                 onActivity={registerActivity}
+                onReset={() => resetLesson(currentLesson.id)}
               />
             )}
 
