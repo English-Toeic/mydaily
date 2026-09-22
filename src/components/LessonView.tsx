@@ -4,19 +4,23 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { Textarea } from "@/components/ui/textarea"
+import { Textarea } from "@/components/ui/textarea";
 import { cn, isAnswerCorrect, normalize } from "@/lib/utils";
 import { useTTS } from "@/hooks/useTTS";
 import {
-  ArrowLeft, Volume2, Check, X, RotateCcw, ChevronRight, ChevronLeft,
+  ArrowLeft,
+  Volume2,
+  Check,
+  X,
+  RotateCcw,
+  ChevronRight,
+  ChevronLeft,
 } from "lucide-react";
 import type { Lesson, LessonProgress } from "@/types";
-// import { useProgress } from "@/hooks/useProgress";
 
 interface Props {
   lesson: Lesson;
   progress: LessonProgress;
-  // learnedIds: number[];
   onBack: () => void;
   onCorrect: (sentenceId: number) => void;
   onActivity: () => void;
@@ -32,48 +36,50 @@ export function LessonView({
   onBack,
   onCorrect,
   onActivity,
-  onReset
+  onReset,
 }: Props) {
-  // const { getLesson, resetLesson } = useProgress();
-  // const progress = getLesson(lesson.id);
   const total = lesson.sentences.length;
   const learnedIds = progress.learnedSentenceIds;
   const learnedCount = learnedIds.length;
   const percent = Math.round((learnedCount / total) * 100);
   const isCompleted = progress.status === "completed";
 
-  // 👇 Tính câu bắt đầu = câu đầu tiên CHƯA học
   const startIndex = useMemo(() => {
     const learned = progress.learnedSentenceIds;
     const idx = lesson.sentences.findIndex((s) => !learned.includes(s.id));
     return idx === -1 ? 0 : idx;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lesson.id]); // chỉ tính lại khi đổi bài
+  }, [lesson.id]);
 
   const [index, setIndex] = useState(startIndex);
   const [answer, setAnswer] = useState("");
   const [phase, setPhase] = useState<Phase>("listening");
   const [result, setResult] = useState<Result>("idle");
+  // ✅ NEW: Trì hoãn màn hình hoàn thành để user xem đáp án câu cuối
+  const [showCompletion, setShowCompletion] = useState(isCompleted);
   const { speak, speaking } = useTTS();
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const sentence = lesson.sentences[index];
-  // const learnedCount = learnedIds.length;
-  // const percent = Math.round((learnedCount / total) * 100);
   const isLast = index === total - 1;
-  // const isCompleted = progress.status === "completed";
 
   const playAudio = useCallback(() => {
     speak(sentence.english);
   }, [speak, sentence.english]);
 
-  // Khi đổi bài → nhảy về câu chưa học
+  // ✅ Khi mở bài đã completed sẵn → hiện luôn màn hình hoàn thành
+  useEffect(() => {
+    if (isCompleted && phase === "listening") {
+      setShowCompletion(true);
+    }
+  }, [isCompleted, phase]);
+
   useEffect(() => {
     setIndex(startIndex);
+    setShowCompletion(isCompleted);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lesson.id]);
 
-  // Khi đổi câu: reset + auto phát + focus
   useEffect(() => {
     setAnswer("");
     setPhase("listening");
@@ -93,6 +99,7 @@ export function LessonView({
       setPhase("revealed");
       setResult("idle");
       onCorrect(sentence.id);
+      // ✅ KHÔNG setShowCompletion ở đây — để user xem đáp án trước
     } else {
       setResult("wrong");
     }
@@ -100,24 +107,30 @@ export function LessonView({
 
   const next = useCallback(() => {
     onActivity();
-    if (!isLast) setIndex((i) => i + 1);
-  }, [isLast, onActivity]);
+    if (!isLast) {
+      setIndex((i) => i + 1);
+    } else {
+      // ✅ Câu cuối, phase=revealed, nhấn next → giờ mới hiện completion
+      if (isCompleted) {
+        setShowCompletion(true);
+      }
+    }
+  }, [isLast, onActivity, isCompleted]);
 
   const prev = useCallback(() => {
     onActivity();
     if (index > 0) setIndex((i) => i - 1);
   }, [index, onActivity]);
 
-  // 👇 Học lại từ đầu
   const handleReset = useCallback(() => {
     onReset();
     setIndex(0);
     setAnswer("");
     setPhase("listening");
     setResult("idle");
+    setShowCompletion(false); // ✅ Reset
   }, [onReset]);
 
-  // Phím tắt
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Control") {
@@ -140,7 +153,6 @@ export function LessonView({
     const correctWords = correct.trim().split(/\s+/);
     const userWords = normalize(userInput).split(/\s+/).filter(Boolean);
 
-    // Đếm số từ đúng liên tiếp từ đầu
     let matched = 0;
     while (
       matched < correctWords.length &&
@@ -150,16 +162,12 @@ export function LessonView({
       matched++;
     }
 
-    // Không khớp từ nào ở đầu → hiện toàn bộ câu để gợi ý mạnh
     if (matched === 0) return correct;
 
-    // Lộ các từ đúng + 1 từ kế tiếp (từ gõ sai), che phần còn lại
     const reveal = matched + 1;
     return correctWords
       .map((w, i) =>
-        i < reveal
-          ? w
-          : "*".repeat(w.replace(/[.,!?;:'"]/g, "").length)
+        i < reveal ? w : "*".repeat(w.replace(/[.,!?;:'"]/g, "").length)
       )
       .join(" ");
   };
@@ -190,8 +198,8 @@ export function LessonView({
         <Progress value={percent} className="h-2" />
       </div>
 
-      {/* 👇 MÀN HÌNH HOÀN THÀNH */}
-      {isCompleted ? (
+      {/* ✅ Chỉ hiện completion khi showCompletion = true */}
+      {showCompletion ? (
         <Card className="p-8 text-center space-y-4">
           <div className="text-4xl">🎉</div>
           <h3 className="text-xl font-semibold">
@@ -305,14 +313,14 @@ export function LessonView({
                 Kiểm tra <span className="ml-2 opacity-60">(Enter)</span>
               </Button>
             ) : (
-              <Button className="w-full" onClick={next} disabled={isLast}>
-                {isLast
-                  ? "Đã hoàn thành bài học 🎉"
-                  : "Câu tiếp theo"}
+              <Button
+                className="w-full"
+                onClick={next}
+              >
+                {/* ✅ Câu cuối + đã revealed → nút chuyển sang "Xem kết quả" */}
+                {isLast ? "Xem kết quả 🎉" : "Câu tiếp theo"}
                 {!isLast && <ChevronRight className="ml-1 h-4 w-4" />}
-                {!isLast && (
-                  <span className="ml-1 opacity-60">(Enter)</span>
-                )}
+                <span className="ml-1 opacity-60">(Enter)</span>
               </Button>
             )}
           </div>
