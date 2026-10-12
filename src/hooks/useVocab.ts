@@ -1,7 +1,7 @@
 // src/hooks/useVocab.ts
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import type { Deck, Word, WordStatus } from "@/types/vocab";
+import type { Deck, Sentence, Word, WordFields, WordStatus } from "@/types/vocab";
 
 const LEARNED_THRESHOLD = 3; // đúng 3 lần liên tiếp → learned
 
@@ -30,7 +30,11 @@ export function useVocab() {
       if (e1) throw e1;
       if (e2) throw e2;
 
-      const words = (wordRows ?? []) as Word[];
+      const words = (wordRows ?? []).map((w) => ({
+        ...w,
+        sentences: Array.isArray(w.sentences) ? w.sentences : [],
+      })) as Word[];
+
       const decksData: Deck[] = (deckRows ?? []).map((d) => ({
         ...d,
         words: words.filter((w) => w.deck_id === d.id),
@@ -121,16 +125,76 @@ export function useVocab() {
   }, []);
 
   // ---- WORD ----
+  // const addWord = useCallback(
+  //   async (deck_id: number, english: string, meaning: string, ipa: string | null) => {
+  //     const { data, error } = await supabase
+  //       .from("words")
+  //       .insert({ deck_id, english, meaning, ipa, status: "new", correct_count: 0 })
+  //       .select()
+  //       .single();
+  //     if (error) throw error;
+      
+  //     const newWord = data as Word;
+  //     setDecks((prev) =>
+  //       prev.map((d) =>
+  //         d.id === deck_id ? { ...d, words: [...d.words, newWord] } : d
+  //       )
+  //     );
+  //     return newWord;
+  //   },
+  //   []
+  // );
+
+  // const updateWord = useCallback(
+  //   async (
+  //     word: Word,
+  //     fields: { english: string; meaning: string; ipa: string | null }
+  //   ) => {
+  //     const { error } = await supabase
+  //       .from("words")
+  //       .update(fields)
+  //       .eq("id", word.id);
+  //     if (error) throw error;
+  //     setDecks((prev) =>
+  //       prev.map((d) =>
+  //         d.id !== word.deck_id
+  //           ? d
+  //           : {
+  //               ...d,
+  //               words: d.words.map((w) =>
+  //                 w.id === word.id ? { ...w, ...fields } : w
+  //               ),
+  //             }
+  //       )
+  //     );
+  //   },
+  //   []
+  // );
+
   const addWord = useCallback(
-    async (deck_id: number, english: string, meaning: string, ipa: string | null) => {
+    async (
+      deck_id: number,
+      english: string,
+      meaning: string,
+      ipa: string | null,
+      sentences: Sentence[] = []
+    ) => {
       const { data, error } = await supabase
         .from("words")
-        .insert({ deck_id, english, meaning, ipa, status: "new", correct_count: 0 })
+        .insert({
+          deck_id,
+          english,
+          meaning,
+          ipa,
+          sentences,
+          status: "new",
+          correct_count: 0,
+        })
         .select()
         .single();
       if (error) throw error;
-      
-      const newWord = data as Word;
+
+      const newWord = { ...(data as Word), sentences: data.sentences ?? [] };
       setDecks((prev) =>
         prev.map((d) =>
           d.id === deck_id ? { ...d, words: [...d.words, newWord] } : d
@@ -141,31 +205,25 @@ export function useVocab() {
     []
   );
 
-  const updateWord = useCallback(
-    async (
-      word: Word,
-      fields: { english: string; meaning: string; ipa: string | null }
-    ) => {
-      const { error } = await supabase
-        .from("words")
-        .update(fields)
-        .eq("id", word.id);
-      if (error) throw error;
-      setDecks((prev) =>
-        prev.map((d) =>
-          d.id !== word.deck_id
-            ? d
-            : {
-                ...d,
-                words: d.words.map((w) =>
-                  w.id === word.id ? { ...w, ...fields } : w
-                ),
-              }
-        )
-      );
-    },
-    []
-  );
+  const updateWord = useCallback(async (word: Word, fields: WordFields) => {
+    const { error } = await supabase
+      .from("words")
+      .update(fields)
+      .eq("id", word.id);
+    if (error) throw error;
+    setDecks((prev) =>
+      prev.map((d) =>
+        d.id !== word.deck_id
+          ? d
+          : {
+              ...d,
+              words: d.words.map((w) =>
+                w.id === word.id ? { ...w, ...fields } : w
+              ),
+            }
+      )
+    );
+  }, []);
 
   const deleteWord = useCallback(async (word: Word) => {
     const { error } = await supabase.from("words").delete().eq("id", word.id);
@@ -190,6 +248,7 @@ export function useVocab() {
         english: r.english,
         meaning: r.meaning,
         ipa: r.ipa,
+        sentences: [],
         status: "new" as const,
         correct_count: 0,
       }));

@@ -1,7 +1,7 @@
-import { useEffect, useRef, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import {
   AlertTriangle, ArrowLeft, Check, ChevronRight, Flame,
-  Lightbulb, Loader2, Volume2, VolumeX, X,
+  Lightbulb, Loader2, MessageSquareOff, MessageSquareText, Volume2, VolumeX, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
@@ -13,6 +13,7 @@ import { hintWords, type Verdict } from "./answer";
 import { useStudySession, type StudyMode } from "./useStudySession";
 import { useCtrlTap } from "./useCtrlTap";
 import { StudySummary } from "./StudySummary";
+import { SentencePractice } from "./SentencePractice";
 
 interface Props {
   deck: Deck;
@@ -26,20 +27,76 @@ const MODE_OPTIONS: { value: StudyMode; label: string }[] = [
   { value: "mixed", label: "Trộn" },
 ];
 
+const PRACTICE_KEY = "vocab:sentence-practice";
+const noop = () => {};
+
 export function VocabStudyView({ deck, onBack, onGrade }: Props) {
   const { speak, speaking } = useTTS();
   const s = useStudySession({ deck, onGrade, speak });
+  
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useCtrlTap(s.replay);
+  // ---- Luyện câu ----
+  const [practiceWord, setPracticeWord] = useState<Word | null>(null);
+  const [practiced, setPracticed] = useState<Set<Word["id"]>>(() => new Set());
+  const [practiceOn, setPracticeOn] = useState(
+    () => localStorage.getItem(PRACTICE_KEY) !== "off"
+  );
+
+  // Đang luyện câu thì Ctrl do SentencePractice xử lý
+  useCtrlTap(practiceWord ? noop : s.replay);
 
   useEffect(() => {
-    inputRef.current?.focus();
-  }, [s.cardKey]);
+    if (!practiceWord) inputRef.current?.focus();
+  }, [s.cardKey, practiceWord]);
 
+  const togglePractice = () => {
+    const v = !practiceOn;
+    setPracticeOn(v);
+    localStorage.setItem(PRACTICE_KEY, v ? "on" : "off");
+  };
+
+  // Sau khi trả lời đúng, từ có câu và chưa luyện trong phiên → sẽ luyện câu
+  const willPractice =
+    !!s.card &&
+    s.phase === "checked" &&
+    s.passed &&
+    practiceOn &&
+    (s.card.word.sentences?.length ?? 0) > 0 &&
+    !practiced.has(s.card.word.id);
+
+  const goNext = async () => {
+    if (!s.card || s.grading) return;
+    const word = s.card.word;
+    const shouldPractice = willPractice;
+    await s.next(); // chấm điểm và lưu như cũ
+    if (shouldPractice) {
+      setPracticed((prev) => new Set(prev).add(word.id));
+      setPracticeWord(word);
+    }
+  };
+
+  const restart = () => {
+    setPracticed(new Set());
+    s.restart();
+  };
+
+  if (practiceWord) {
+    return (
+      <SentencePractice
+        key={practiceWord.id}
+        word={practiceWord}
+        speak={speak}
+        speaking={speaking}
+        autoSpeak={s.autoSpeak}
+        onDone={() => setPracticeWord(null)}
+      />
+    );
+  }
+  
   if (!s.card) {
     return (
-      <StudySummary deck={deck} session={s.session} onRestart={s.restart} onBack={onBack} speak={speak} />
+      <StudySummary deck={deck} session={s.session} onRestart={restart} onBack={onBack} speak={speak} />
     );
   }
 
@@ -54,7 +111,7 @@ export function VocabStudyView({ deck, onBack, onGrade }: Props) {
     // Bỏ qua Enter khi bộ gõ Telex/VNI đang ghép chữ
     if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
     e.preventDefault();
-    if (checked) void s.next();
+    if (checked) void goNext();
     else s.check();
   };
 
@@ -80,6 +137,27 @@ export function VocabStudyView({ deck, onBack, onGrade }: Props) {
           className="shrink-0 rounded-full text-muted-foreground"
         >
           {s.autoSpeak ? <Volume2 className="size-5" /> : <VolumeX className="size-5" />}
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          {...keepInputFocus}
+          onClick={togglePractice}
+          aria-pressed={practiceOn}
+          aria-label={practiceOn ? "Tắt luyện câu" : "Bật luyện câu"}
+          title={practiceOn ? "Luyện câu: đang bật (bấm để tắt)" : "Luyện câu: đang tắt (bấm để bật)"}
+          className={cn(
+            "shrink-0 rounded-full transition-colors",
+            practiceOn
+              ? "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
+              : "text-muted-foreground/60 hover:text-muted-foreground"
+          )}
+        >
+          {practiceOn ? (
+            <MessageSquareText className="size-5" />
+          ) : (
+            <MessageSquareOff className="size-5" />
+          )}
         </Button>
       </header>
 
@@ -228,7 +306,7 @@ export function VocabStudyView({ deck, onBack, onGrade }: Props) {
         ) : (
           <Button
             {...keepInputFocus}
-            onClick={() => void s.next()}
+            onClick={() => void goNext()}
             disabled={s.grading}
             className="h-12 flex-1 rounded-xl text-base touch-manipulation"
           >
@@ -236,7 +314,8 @@ export function VocabStudyView({ deck, onBack, onGrade }: Props) {
               <Loader2 className="size-4 animate-spin" />
             ) : (
               <>
-                {s.passed ? "Tiếp theo" : "Học lại sau"} <ChevronRight className="size-4" />
+                {s.passed ? (willPractice ? "Luyện 5 câu" : "Tiếp theo") : "Học lại sau"}
+                <ChevronRight className="size-4" />
               </>
             )}
           </Button>

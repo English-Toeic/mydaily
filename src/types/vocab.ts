@@ -9,6 +9,7 @@ export interface Word {
   ipa: string | null;
   status: WordStatus;
   correct_count: number; // số lần đúng liên tiếp → đủ thì learned
+  sentences: Sentence[];
 }
 
 export interface Deck {
@@ -25,3 +26,15 @@ export interface DeckCount {
   learn: number;
   total: number; // learned
 }
+
+export interface Sentence {
+  vi: string;     // "Tôi thường dậy sớm."
+  en: string[];   // ["I usually get up early.", "I often get up early."]
+}
+
+export type WordFields = {
+  english: string;
+  meaning: string;
+  ipa: string | null;
+  sentences: Sentence[];
+};
