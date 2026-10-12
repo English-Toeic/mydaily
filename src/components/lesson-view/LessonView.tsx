@@ -13,6 +13,7 @@ import { AnswerActions } from "./AnswerActions";
 import { StepNav } from "./StepNav";
 import { CompletionCard } from "./CompletionCard";
 import type { LessonViewProps } from "./types";
+import { SentenceJumper } from "./SentenceJumper";
 
 export function LessonView(props: LessonViewProps) {
   const { lesson, onBack } = props;
@@ -100,7 +101,13 @@ export function LessonView(props: LessonViewProps) {
                 canNext={!s.isLast}
                 onPrev={s.goPrev}
                 onNext={s.skip}
-              />
+              >
+                <SentenceJumper 
+                  current={s.index}
+                  learned={s.learnedMarks}
+                  nextUnlearned={s.nextUnlearnedIndex}
+                  onJump={s.goTo}/>
+                </StepNav>
             </>
           )}
         </>

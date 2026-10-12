@@ -134,6 +134,23 @@ export function useLessonSession({
     dispatch({ type: "restart", mode: "learn", index: 0 });
   };
 
+  const goTo = (target: number) => {
+    if (!Number.isInteger(target) || target < 0 || target >= total) return;
+    // Đang ở đúng câu đó thì không làm gì, tránh xoá câu đang gõ
+    if (target === state.index && state.view === "practice") return;
+    touchActivity();
+    dispatch({ type: "go", index: target });
+  };
+
+  const learnedMarks = useMemo(
+    () => sentences.map((s) => learnedSet.has(s.id)),
+    [sentences, learnedSet]
+  );
+
+  /** Câu chưa thuộc kế tiếp sau câu hiện tại (quay vòng). -1 nếu đã thuộc hết */
+  const nextUnlearnedIndex = findNextUnlearned(sentences, effectiveLearned, state.index + 1);
+
+
   return {
     // dữ liệu
     sentence,
@@ -152,7 +169,9 @@ export function useLessonSession({
     isLast,
     isAnswered,
     willComplete,
+    learnedMarks,
+    nextUnlearnedIndex,
     // hành động
-    replay, setAnswer, check, giveUp, next, primary, goPrev, skip, startReview, restartLearning,
+    replay, setAnswer, check, giveUp, next, primary, goPrev, skip, startReview, restartLearning, goTo,
   };
 }

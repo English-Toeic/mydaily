@@ -48,6 +48,22 @@
     --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+@theme {
+  --animate-sound-wave: sound-wave 1s ease-in-out infinite;
+  --animate-shake: shake 0.4s ease-in-out;
+
+  @keyframes sound-wave {
+    0%, 100% { transform: scaleY(0.3); }
+    50% { transform: scaleY(1); }
+  }
+
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    20%, 60% { transform: translateX(-4px); }
+    40%, 80% { transform: translateX(4px); }
+  }
+}
+
 :root {
     --background: oklch(1 0 0);
     --foreground: oklch(0.145 0 0);
