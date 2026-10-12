@@ -1,5 +1,5 @@
 import { Inbox } from "lucide-react";
-import { Card } from "@/components/ui/card";
+import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useTTS } from "@/hooks/useTTS";
 import { useLessonSession } from "./useLessonSession";
@@ -11,9 +11,9 @@ import { RevealedAnswer } from "./RevealedAnswer";
 import { AnswerInput } from "./AnswerInput";
 import { AnswerActions } from "./AnswerActions";
 import { StepNav } from "./StepNav";
+import { SentenceJumper } from "./SentenceJumper";
 import { CompletionCard } from "./CompletionCard";
 import type { LessonViewProps } from "./types";
-import { SentenceJumper } from "./SentenceJumper";
 
 export function LessonView(props: LessonViewProps) {
   const { lesson, onBack } = props;
@@ -31,14 +31,14 @@ export function LessonView(props: LessonViewProps) {
     : "kiểm tra";
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
+    <div className="mx-auto w-full max-w-2xl space-y-6 px-4 py-6 sm:py-10">
       <LessonHeader lesson={lesson} mode={s.mode} onBack={onBack} />
 
       {!s.sentence ? (
         <EmptyState
           icon={Inbox}
           title="Bài học chưa có câu nào"
-          description="Nội dung đang được cập nhật, bạn quay lại sau nhé."
+          description="Hãy quay lại danh sách và chọn bài khác."
         />
       ) : (
         <>
@@ -47,6 +47,7 @@ export function LessonView(props: LessonViewProps) {
             total={s.total}
             learnedCount={s.learnedCount}
             percent={s.percent}
+            marks={s.learnedMarks}
             showStep={s.view === "practice"}
             isCurrentLearned={s.isCurrentLearned}
           />
@@ -61,54 +62,54 @@ export function LessonView(props: LessonViewProps) {
               onReset={s.restartLearning}
             />
           ) : (
-            <>
-              <Card className="space-y-4 p-6">
+            <Card className="animate-in fade-in slide-in-from-bottom-2 motion-reduce:animate-none">
+              <CardContent className="space-y-5">
                 <ListenPanel
                   speaking={speaking}
                   emphasized={!s.isAnswered}
                   enterLabel={enterLabel}
                   onPlay={s.replay}
                 />
+
                 {s.isAnswered && (
                   <RevealedAnswer
                     sentence={s.sentence}
-                    status={s.status === "correct" ? "correct" : "revealed"}
+                    status={s.status as "correct" | "revealed"}
                     onReplay={s.replay}
                   />
                 )}
-              </Card>
 
-              <AnswerInput
-                value={s.answer}
-                status={s.status}
-                hint={s.hint}
-                focusKey={s.step}
-                onChange={s.setAnswer}
-              />
+                <AnswerInput
+                  value={s.answer}
+                  status={s.status}
+                  hint={s.hint}
+                  attempt={s.attempts}
+                  focusKey={s.step}
+                  onChange={s.setAnswer}
+                />
 
-              <AnswerActions
-                isAnswered={s.isAnswered}
-                willComplete={s.willComplete}
-                canCheck={s.answer.trim().length > 0}
-                canGiveUp={s.canGiveUp}
-                onCheck={s.check}
-                onNext={s.next}
-                onGiveUp={s.giveUp}
-              />
+                <AnswerActions
+                  isAnswered={s.isAnswered}
+                  willComplete={s.willComplete}
+                  canCheck={s.answer.trim().length > 0}
+                  canGiveUp={s.canGiveUp}
+                  onCheck={s.check}
+                  onNext={s.next}
+                  onGiveUp={s.giveUp}
+                />
+              </CardContent>
 
-              <StepNav
-                canPrev={!s.isFirst}
-                canNext={!s.isLast}
-                onPrev={s.goPrev}
-                onNext={s.skip}
-              >
-                <SentenceJumper 
-                  current={s.index}
-                  learned={s.learnedMarks}
-                  nextUnlearned={s.nextUnlearnedIndex}
-                  onJump={s.goTo}/>
+              <CardFooter className="border-t">
+                <StepNav canPrev={!s.isFirst} canNext={!s.isLast} onPrev={s.goPrev} onNext={s.skip}>
+                  <SentenceJumper
+                    current={s.index}
+                    learned={s.learnedMarks}
+                    nextUnlearned={s.nextUnlearnedIndex}
+                    onJump={s.goTo}
+                  />
                 </StepNav>
-            </>
+              </CardFooter>
+            </Card>
           )}
         </>
       )}
