@@ -36,19 +36,39 @@ const maskWord = (word: string) => word.replace(/[\p{L}\p{N}]/gu, "•");
  */
 export function buildHint(correct: string, input: string): HintToken[] {
   const words = correct.trim().split(/\s+/);
+
+  const expected = normalize(correct).split(/\s+/);
   const typed = normalize(input).split(/\s+/).filter(Boolean);
 
   let matched = 0;
+
   while (
-    matched < words.length &&
+    matched < expected.length &&
     matched < typed.length &&
-    normalize(words[matched]) === typed[matched]
+    expected[matched] === typed[matched]
   ) {
     matched++;
   }
 
-  const reveal = Math.min(words.length, matched + 1);
-  return words.map((w, i) =>
-    i < reveal ? { text: w, hidden: false } : { text: maskWord(w), hidden: true }
-  );
+  // Đếm số từ gốc đã khớp hoàn toàn
+  let consumed = 0;
+  let revealed = 0;
+
+  for (const word of words) {
+    const parts = normalize(word).split(/\s+/);
+
+    if (consumed + parts.length <= matched) {
+      consumed += parts.length;
+      revealed++;
+    } else {
+      break;
+    }
+  }
+
+  const reveal = Math.min(words.length, revealed + 1);
+
+  return words.map((word, i) => ({
+    text: i < reveal ? word : maskWord(word),
+    hidden: i >= reveal,
+  }));
 }

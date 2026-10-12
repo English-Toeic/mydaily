@@ -101,7 +101,6 @@ export function escapeRegex(s: string): string {
 export function isAnswerCorrect(userInput: string, correctAnswer: string): boolean {
   const normalizedUser = normalize(userInput);
   const normalizedCorrect = normalize(correctAnswer);
-
   // Trường hợp đơn giản: khớp trực tiếp
   if (normalizedUser === normalizedCorrect) return true;
 
@@ -112,6 +111,5 @@ export function isAnswerCorrect(userInput: string, correctAnswer: string): boole
   // Sinh biến thể của user → kiểm tra có khớp đáp án gốc
   const userVariants = generateVariants(userInput);
   if (userVariants.has(normalizedCorrect)) return true;
-
   return false;
 }
