@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo } from "react";
 import { SectionList } from "@/components/SectionList";
 import { LessonList } from "@/components/lesson-list";
 import { LessonView } from "@/components/lesson-view";
-import { StatsView } from "@/components/StatsView";
+import { StatsView } from "@/components/stats/StatsView";
 import { AdminView } from "@/components/AdminView";
 import { VocabView } from "@/components/vocab/VocabView";
 import { VocabStudyView } from "@/components/vocab/VocabStudyView";
@@ -119,7 +119,7 @@ export function MainApp() {
       }
 
       case "stats":
-        return <StatsView study={study} onBack={goBack} />;
+        return <StatsView study={study} decks={vocab.decks} onBack={goBack} />
 
       case "admin":
         return sectionsGate(

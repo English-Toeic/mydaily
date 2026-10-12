@@ -1,3 +1,5 @@
+import { dateKey } from "./date";
+
 const PREFIX = "dev-english:";
 
 export const storage = {
@@ -19,9 +21,7 @@ export const storage = {
 };
 
 // Helpers ngày tháng
-export function todayKey(d = new Date()): string {
-  return d.toISOString().slice(0, 10); // YYYY-MM-DD
-}
+export const todayKey = () => dateKey();
 
 export function diffDays(a: string, b: string): number {
   const da = new Date(a + "T00:00:00");
