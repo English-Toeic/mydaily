@@ -2,7 +2,7 @@ import { Volume2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { cn } from "@/lib/utils";
-import { keepInputFocus } from "./keepInputFocus";
+import { keepInputFocus } from "@/lib/keepInputFocus";
 
 type Props = {
   speaking: boolean;
