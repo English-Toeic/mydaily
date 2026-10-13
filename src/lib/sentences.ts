@@ -173,3 +173,5 @@ export function makeHint(answer: string): string {
     .map((w) => w[0] + "_".repeat(Math.max(0, w.length - 1)))
     .join(" ");
 }
+
+export type SentenceVerdict = "correct" | "almost" | "wrong";
