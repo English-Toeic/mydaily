@@ -4,26 +4,31 @@ import type { Sentence } from "@/types/vocab";
 export const SENTENCE_COUNT = 5;
 
 /* =========================================================
-   PHẦN 1: HỖ TRỢ FORM NHẬP LIỆU
+   PHẦN 1: HỖ TRỢ FORM NHẬP LIỆU (Admin)
    ========================================================= */
 
 /** Dạng dùng trong form: en là chuỗi thô, nhiều đáp án cách nhau bằng "|" */
 export type SentenceDraft = { vi: string; en: string };
 
+const blank = (): SentenceDraft => ({ vi: "", en: "" });
+
 export const emptyDrafts = (): SentenceDraft[] =>
-  Array.from({ length: SENTENCE_COUNT }, () => ({ vi: "", en: "" }));
+  Array.from({ length: SENTENCE_COUNT }, blank);
+
+function padDrafts(drafts: SentenceDraft[]): SentenceDraft[] {
+  const out = drafts.slice(0, SENTENCE_COUNT);
+  while (out.length < SENTENCE_COUNT) out.push(blank());
+  return out;
+}
 
 /** Sentence[] (từ DB) → drafts (cho form) */
 export function toDrafts(sentences: Sentence[] | null | undefined): SentenceDraft[] {
-  const drafts = (sentences ?? []).map((s) => ({
-    vi: s.vi,
-    en: s.en.join(" | "),
-  }));
-  while (drafts.length < SENTENCE_COUNT) drafts.push({ vi: "", en: "" });
-  return drafts.slice(0, SENTENCE_COUNT);
+  return padDrafts(
+    (sentences ?? []).map((s) => ({ vi: s.vi, en: s.en.join(" | ") }))
+  );
 }
 
-/** drafts (form) → Sentence[] (lưu DB). Bỏ qua dòng trống, báo lỗi dòng thiếu. */
+/** drafts (form) → Sentence[] (lưu DB). Bỏ qua dòng trống, báo lỗi dòng thiếu */
 export function parseDrafts(drafts: SentenceDraft[]): {
   sentences: Sentence[];
   error?: string;
@@ -36,7 +41,7 @@ export function parseDrafts(drafts: SentenceDraft[]): {
       .map((s) => s.trim())
       .filter(Boolean);
 
-    if (!vi && en.length === 0) continue; // dòng trống → bỏ qua
+    if (!vi && en.length === 0) continue;
     if (!vi || en.length === 0) {
       return {
         sentences: [],
@@ -48,21 +53,18 @@ export function parseDrafts(drafts: SentenceDraft[]): {
   return { sentences };
 }
 
-/**
- * Dán nhanh, mỗi dòng 1 câu:
- *   Câu tiếng Việt | English 1 | English 2
- */
+/** Dán nhanh, mỗi dòng: Câu tiếng Việt | English 1 | English 2 */
 export function parsePaste(text: string): SentenceDraft[] {
-  const drafts = text
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const [vi, ...en] = line.split(/\t|\|/).map((s) => s.trim());
-      return { vi: vi ?? "", en: en.filter(Boolean).join(" | ") };
-    });
-  while (drafts.length < SENTENCE_COUNT) drafts.push({ vi: "", en: "" });
-  return drafts.slice(0, SENTENCE_COUNT);
+  return padDrafts(
+    text
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const [vi = "", ...en] = line.split(/\t|\|/).map((s) => s.trim());
+        return { vi, en: en.filter(Boolean).join(" | ") };
+      })
+  );
 }
 
 /* =========================================================
@@ -98,16 +100,16 @@ export function normalize(s: string): string[] {
     .filter(Boolean);
 }
 
-/** Khoảng cách chỉnh sửa tính theo TỪ (không theo ký tự) */
-function editDistance(a: string[], b: string[]): number {
+/** Levenshtein tổng quát, cost thay thế tùy biến */
+function levenshtein<T>(a: T[], b: T[], subCost: (x: T, y: T) => number): number {
   let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
   for (let i = 1; i <= a.length; i++) {
     const cur = [i];
     for (let j = 1; j <= b.length; j++) {
       cur[j] = Math.min(
-        prev[j] + 1,
-        cur[j - 1] + 1,
-        prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
+        prev[j] + 1,                               // xóa
+        cur[j - 1] + 1,                            // thêm
+        prev[j - 1] + subCost(a[i - 1], b[j - 1])  // thay
       );
     }
     prev = cur;
@@ -115,35 +117,47 @@ function editDistance(a: string[], b: string[]): number {
   return prev[b.length];
 }
 
-const PLACEHOLDERS = new Set([
-  "sb", "sth", "smb", "smth", "st", "someone", "something", "ones", "oneself",
-]);
-
-/** Người dùng có dùng từ đang học không (chấp nhận biến thể: prevent → prevented) */
-function containsTarget(userTokens: string[], english: string): boolean {
-  const target = normalize(english.replace(/\(.*?\)/g, "")).filter(
-    (t) => !PLACEHOLDERS.has(t)
-  );
-  const stem = (w: string) => (w.length > 3 ? w.replace(/(e|y)$/, "") : w);
-  return target.every((t) => userTokens.some((tok) => tok.startsWith(stem(t))));
+/** 0 = giống, 0.5 = sai chính tả nhẹ, 1 = khác hẳn */
+function tokenCost(a: string, b: string): number {
+  if (a === b) return 0;
+  if (Math.min(a.length, b.length) < 3) return 1;
+  const d = levenshtein([...a], [...b], (x, y) => (x === y ? 0 : 1));
+  const allowed = Math.max(a.length, b.length) >= 7 ? 2 : 1;
+  return d <= allowed ? 0.5 : 1;
 }
 
-export type Verdict = "correct" | "close" | "wrong";
-export interface CheckResult {
-  verdict: Verdict;
+const PLACEHOLDERS = new Set([
+  "sb", "sth", "someone", "somebody", "something", "ones", "oneself",
+]);
+const stem = (w: string) => (w.length > 3 ? w.replace(/(e|y)$/, "") : w);
+const hasToken = (tokens: string[], t: string) =>
+  tokens.some((tok) => tok.startsWith(stem(t)));
+
+/** Người dùng thiếu từ đang học? (chỉ xét các phần mà đáp án mẫu có chứa) */
+function missingTarget(user: string[], answer: string[], target: string): boolean {
+  return normalize(target)
+    .filter((t) => !PLACEHOLDERS.has(t) && hasToken(answer, t))
+    .some((t) => !hasToken(user, t));
+}
+
+export type SentenceVerdict = "correct" | "almost" | "wrong";
+
+export interface SentenceCheck {
+  verdict: SentenceVerdict;
   best: string;       // đáp án gần nhất với câu người dùng
   similarity: number; // 0 → 1
 }
 
-const CLOSE_THRESHOLD = 0.75;
+const ALMOST_THRESHOLD = 0.75;
 
 export function checkSentence(
   input: string,
   answers: string[],
   targetWord: string
-): CheckResult {
+): SentenceCheck {
   const user = normalize(input);
   let best = answers[0] ?? "";
+  let bestTokens = normalize(best);
   let bestSim = -1;
 
   for (const ans of answers) {
@@ -151,27 +165,29 @@ export function checkSentence(
     if (a.join(" ") === user.join(" ")) {
       return { verdict: "correct", best: ans, similarity: 1 };
     }
-    const sim = 1 - editDistance(user, a) / Math.max(user.length, a.length, 1);
+    const dist = levenshtein(user, a, tokenCost);
+    const sim = 1 - dist / Math.max(user.length, a.length, 1);
     if (sim > bestSim) {
       bestSim = sim;
       best = ans;
+      bestTokens = a;
     }
   }
 
-  if (bestSim >= CLOSE_THRESHOLD && containsTarget(user, targetWord)) {
-    return { verdict: "close", best, similarity: bestSim };
+  const sim = Math.max(bestSim, 0);
+  if (sim >= ALMOST_THRESHOLD && !missingTarget(user, bestTokens, targetWord)) {
+    return { verdict: "almost", best, similarity: sim };
   }
-  return { verdict: "wrong", best, similarity: Math.max(bestSim, 0) };
+  return { verdict: "wrong", best, similarity: sim };
 }
 
-/** Gợi ý chữ cái đầu: "I usually get up early." → "I u______ g__ u_ e____" */
+/** Gợi ý chữ cái đầu: "I usually get up early." → "I u______ g__ u_ e____." */
 export function makeHint(answer: string): string {
   return answer
-    .replace(/[.,!?;:]/g, "")
     .split(/\s+/)
     .filter(Boolean)
-    .map((w) => w[0] + "_".repeat(Math.max(0, w.length - 1)))
+    .map((w) =>
+      w.replace(/[\p{L}\p{N}']+/gu, (m) => m[0] + "_".repeat(m.length - 1))
+    )
     .join(" ");
 }
-
-export type SentenceVerdict = "correct" | "almost" | "wrong";

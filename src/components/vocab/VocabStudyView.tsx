@@ -78,7 +78,7 @@ export function VocabStudyView({ deck, onBack, onGrade }: Props) {
 
   const restart = () => {
     setPracticed(new Set());
-    s.restart();
+    // s.restart();
   };
 
   if (practiceWord) {
