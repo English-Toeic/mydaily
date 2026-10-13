@@ -2,10 +2,10 @@
 import { useAuth } from "@/hooks/useAuth";
 import { MainApp } from "@/MainApp";
 import { GraduationCap } from "lucide-react";
-// import { LoginForm } from "./components/LoginForm";
+import { LoginForm } from "./components/LoginForm";
 
 export default function App() {
-  const { loading } = useAuth();
+  const { loading, user } = useAuth();
 
   if (loading) {
     return (
@@ -16,12 +16,13 @@ export default function App() {
     );
   }
 
-  // if (!user) {
-  //   return (
-  //     <LoginForm />
-  //   );
-  // }
+
+  if (!user) {
+    return (
+      <LoginForm />
+    );
+  }
 
   // ✅ Auth sẵn sàng → mới mount phần dùng hook DB
-  return <MainApp />;
+  return <MainApp key={user.id}/>;
 }

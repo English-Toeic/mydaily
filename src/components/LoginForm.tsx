@@ -1,10 +1,11 @@
-// src/components/LoginForm.tsx
 import { useState } from "react";
+import { GraduationCap } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
 export function LoginForm() {
   const { login } = useAuth();
-  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -12,30 +13,58 @@ export function LoginForm() {
     e.preventDefault();
     setErr(null);
     setLoading(true);
-    const { error } = await login(name);
+    const { error } = await login(email, password);
     setLoading(false);
     if (error) setErr(error);
   };
 
+  const inputCls =
+    "w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:border-primary";
+
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-3 max-w-xs mx-auto">
-      <h1 className="text-xl font-bold text-center">Nhập tên để bắt đầu</h1>
-      <input
-        type="text"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="Tên của bạn..."
-        autoFocus
-        className="border rounded px-3 py-2"
-      />
-      {err && <p className="text-red-500 text-sm">{err}</p>}
-      <button
-        type="submit"
-        disabled={loading || !name.trim()}
-        className="bg-blue-600 text-white rounded py-2 disabled:opacity-50"
+    <div className="flex min-h-screen items-center justify-center p-4">
+      <form
+        onSubmit={handleSubmit}
+        className="flex w-full max-w-sm flex-col gap-3 rounded-xl border bg-card p-6 shadow-sm"
       >
-        {loading ? "Đang vào..." : "Vào học"}
-      </button>
-    </form>
+        <div className="mb-2 flex flex-col items-center gap-2">
+          <GraduationCap className="h-10 w-10 text-primary" />
+          <h1 className="text-xl font-bold">Đăng nhập</h1>
+        </div>
+
+        <input
+          type="email"
+          name="email"
+          autoComplete="username"
+          inputMode="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="Email"
+          autoFocus
+          required
+          className={inputCls}
+        />
+        <input
+          type="password"
+          name="password"
+          autoComplete="current-password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder="Mật khẩu"
+          required
+          className={inputCls}
+        />
+
+        {err && <p className="text-sm text-red-500">{err}</p>}
+
+        <button
+          type="submit"
+          disabled={loading || !email.trim() || !password}
+          className="rounded-md bg-primary py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+        >
+          {loading ? "Đang đăng nhập…" : "Đăng nhập"}
+        </button>
+      </form>
+    </div>
   );
 }
