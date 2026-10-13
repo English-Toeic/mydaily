@@ -32,12 +32,12 @@ export function MainApp() {
   const isFocus = FOCUS_VIEWS.has(view.name);
 
   // Chỉ tính thời gian học khi đang ở bài học (giữ nguyên hành vi cũ)
-  const { state: study, todaySeconds, streak, registerActivity, bumpStreak } =
-    useStudyTracker(isLesson);
+  const { state: study, ready: studyReady, todaySeconds, streak, registerActivity, bumpStreak } =
+  useStudyTracker(isLesson);
 
   useEffect(() => {
-    if (isLesson) bumpStreak();
-  }, [isLesson, bumpStreak]);
+    if (isLesson && studyReady) bumpStreak();
+  }, [isLesson, studyReady, bumpStreak]);
 
   // ---- Lookup O(1) ----
   const sectionById = useMemo(() => new Map(sections.map((s) => [s.id, s])), [sections]);
