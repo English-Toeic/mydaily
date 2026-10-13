@@ -10,7 +10,7 @@ import { keepInputFocus } from "@/lib/keepInputFocus";
 import { useTTS } from "@/hooks/useTTS";
 import type { Deck, Word } from "@/types/vocab";
 import { hintWords, type Verdict } from "./answer";
-import { useStudySession, type StudyMode } from "./useStudySession";
+import { useStudySession, type RestartKind, type StudyMode } from "./useStudySession";
 import { useCtrlTap } from "./useCtrlTap";
 import { StudySummary } from "./StudySummary";
 import { SentencePractice } from "./SentencePractice";
@@ -76,9 +76,10 @@ export function VocabStudyView({ deck, onBack, onGrade }: Props) {
     }
   };
 
-  const restart = () => {
+  const restart = (kind: RestartKind) => {
     setPracticed(new Set());
-    // s.restart();
+    setPracticeWord(null);
+    s.restart(kind);
   };
 
   if (practiceWord) {
