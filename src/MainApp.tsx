@@ -28,7 +28,7 @@ export function MainApp() {
   const { getLesson, markSentenceLearned, openLesson, resetLesson } = useProgress();
   const vocab = useVocab();
 
-  const isLesson = view.name === "lesson";
+  const isLesson = view.name === "lesson" || view.name === "vocabStudy";
   const isFocus = FOCUS_VIEWS.has(view.name);
 
   // Chỉ tính thời gian học khi đang ở bài học (giữ nguyên hành vi cũ)
