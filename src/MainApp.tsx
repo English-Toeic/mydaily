@@ -6,7 +6,7 @@ import { StatsView } from "@/components/stats/StatsView";
 import { AdminView } from "@/components/AdminView";
 import { VocabView } from "@/components/vocab/VocabView";
 import { VocabStudyView } from "@/components/vocab/VocabStudyView";
-import { VocabAdminView } from "@/components/VocabAdminView";
+import { VocabAdminView } from "@/components/vocab-admin/VocabAdminView";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { MobileNav } from "@/components/layout/MobileNav";
 import { HomeHero } from "@/components/home/HomeHero";
@@ -187,14 +187,12 @@ export function MainApp() {
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_1px_1px,var(--color-border)_1px,transparent_0)] bg-size-[24px_24px] opacity-40 mask-[linear-gradient(to_bottom,black,transparent_60%)]" />
       </div>
 
-      {!isFocus && (
         <AppHeader
           view={view}
           streak={streak}
           todaySeconds={todaySeconds}
           onNavigate={navigate}
         />
-      )}
 
       <main
         className={cn(
