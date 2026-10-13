@@ -1,8 +1,9 @@
-import { Fragment, useEffect, useId, useRef } from "react";
+import { Fragment, useEffect, useId, useLayoutEffect, useRef } from "react";
 import { Check, Eye, X } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import type { AnswerStatus, HintToken } from "./types";
+import { findFirstError } from "@/lib/firstError";
 
 type Props = {
   value: string;
@@ -12,6 +13,7 @@ type Props = {
   attempt: number;
   /** Đổi giá trị này (mỗi câu mới) thì ô nhập tự focus */
   focusKey: number;
+  answers: string | string[];
   onChange: (value: string) => void;
 };
 
@@ -21,8 +23,9 @@ const STATUS_ICON = {
   wrong: { Icon: X, className: "bg-red-500 text-white" },
 } as const;
 
-export function AnswerInput({ value, status, hint, attempt, focusKey, onChange }: Props) {
+export function AnswerInput({ value, status, hint, attempt, focusKey, answers, onChange }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
+  const handled = useRef<string | null>(null);
   const hintId = useId();
   const disabled = status === "correct" || status === "revealed";
   const icon = status !== "answering" ? STATUS_ICON[status] : null;
@@ -30,6 +33,23 @@ export function AnswerInput({ value, status, hint, attempt, focusKey, onChange }
   useEffect(() => {
     if (!disabled) ref.current?.focus();
   }, [focusKey, disabled]);
+
+  useLayoutEffect(() => {
+    if (status !== "wrong") return;
+    const key = `${focusKey}:${attempt}`;
+    if (handled.current === key) return;
+    handled.current = key;
+
+    const el = ref.current;
+    if (!el || !value.trim()) return;
+
+    const list = Array.isArray(answers) ? answers : [answers];
+    const range = findFirstError(value, list);
+    if (!range) return;
+
+    el.focus({ preventScroll: true });
+    el.setSelectionRange(range.caret, range.caret);
+  }, [status, attempt, focusKey, value, answers]);
 
   return (
     <div className="space-y-3">

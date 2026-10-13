@@ -86,6 +86,7 @@ export function LessonView(props: LessonViewProps) {
                   attempt={s.attempts}
                   focusKey={s.step}
                   onChange={s.setAnswer}
+                  answers={s.sentence.english}
                 />
 
                 <AnswerActions
