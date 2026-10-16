@@ -19,6 +19,7 @@ export async function fetchSections(): Promise<Section[]> {
         sort_order,
         sentences (
           id,
+          lesson_id,
           english,
           vietnamese,
           sort_order
@@ -47,6 +48,7 @@ export async function fetchSections(): Promise<Section[]> {
       level: l.level,
       sentences: (l.sentences ?? []).map((sen) => ({
         id: sen.id,
+        lesson_id: sen.lesson_id,
         english: sen.english,
         vietnamese: sen.vietnamese,
       })),
