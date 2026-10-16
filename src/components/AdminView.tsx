@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";
 import { ArrowLeft, Plus, Upload } from "lucide-react";
 import type { Section } from "@/types";
+import { AudioTranscribeForm } from "./AudioTranscribeForm";
 
 type Props = {
   sections: Section[];
@@ -27,6 +28,7 @@ export function AdminView({ sections, onBack, onChanged }: Props) {
         <SentenceForm sections={sections} onChanged={onChanged} />
         {/* ✅ Form mới: thêm nhiều sentence */}
         <BulkSentenceForm sections={sections} onChanged={onChanged} />
+        <AudioTranscribeForm sections={sections} onChanged={onChanged} />
       </div>
     </div>
   );

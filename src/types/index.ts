@@ -4,10 +4,14 @@ export type LessonStatus = "not-started" | "learning" | "completed";
 
 export interface Sentence {
   id: number;
+  lesson_id: number;
   english: string;
   vietnamese: string;
   sort_order?: number;
   created_at?: string;
+  start_ms?: number | null;
+  end_ms?: number | null;
+  speaker?: string | null;
 }
 
 export interface Lesson {
@@ -19,6 +23,7 @@ export interface Lesson {
   sentences: Sentence[]; // rỗng nếu chưa nhập data
   sort_order?: number;
   created_at?: string;
+  audio_url?: string | null;
 }
 
 export interface Section {

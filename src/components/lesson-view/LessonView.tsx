@@ -14,17 +14,24 @@ import { StepNav } from "./StepNav";
 import { SentenceJumper } from "./SentenceJumper";
 import { CompletionCard } from "./CompletionCard";
 import type { LessonViewProps } from "./types";
+import { useEffect } from "react";
 
 export function LessonView(props: LessonViewProps) {
   const { lesson, onBack } = props;
-  const { speak, speaking } = useTTS();
+  const { speak, stop, togglePause, status } = useTTS();
   const s = useLessonSession({ ...props, speak });
 
   useLessonHotkeys({
     enabled: s.view === "practice" && !!s.sentence,
     onEnter: s.primary,
     onReplay: s.replay,
+    onTogglePause: togglePause,
+    canTogglePause: status !== "idle",
   });
+
+  useEffect(() => {
+    if (s.view !== "practice") stop();
+  }, [s.view, stop]);
 
   const enterLabel = s.isAnswered
     ? s.willComplete ? "xem kết quả" : "câu tiếp theo"
@@ -65,10 +72,11 @@ export function LessonView(props: LessonViewProps) {
             <Card className="animate-in fade-in slide-in-from-bottom-2 motion-reduce:animate-none">
               <CardContent className="space-y-5">
                 <ListenPanel
-                  speaking={speaking}
+                  status={status}
                   emphasized={!s.isAnswered}
                   enterLabel={enterLabel}
                   onPlay={s.replay}
+                  onTogglePause={togglePause}
                 />
 
                 {s.isAnswered && (

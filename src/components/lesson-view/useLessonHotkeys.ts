@@ -5,13 +5,20 @@ type Options = {
   onEnter: () => void;
   /** Chỉ chạy khi Ctrl được nhấn rồi thả mà không kèm phím nào khác */
   onReplay: () => void;
+  /** Esc: tạm dừng / tiếp tục đọc */
+  onTogglePause?: () => void;
+  /** false (ví dụ chưa phát gì) thì Esc giữ hành vi mặc định */
+  canTogglePause?: boolean;
 };
 
-export function useLessonHotkeys({ enabled, onEnter, onReplay }: Options) {
+const PAUSE_KEY = "F1";
+
+
+export function useLessonHotkeys({ enabled, onEnter, onReplay, onTogglePause, canTogglePause = false, }: Options) {
   // Giữ handler mới nhất trong ref để không phải gỡ và gắn lại listener mỗi lần render
-  const handlers = useRef({ onEnter, onReplay });
+  const handlers = useRef({ onEnter, onReplay, onTogglePause, canTogglePause });
   useEffect(() => {
-    handlers.current = { onEnter, onReplay };
+    handlers.current = { onEnter, onReplay, onTogglePause, canTogglePause };
   });
 
   useEffect(() => {
@@ -26,13 +33,25 @@ export function useLessonHotkeys({ enabled, onEnter, onReplay }: Options) {
       ctrlAlone = false; // Ctrl+C, Ctrl+V... không tính là "chạm Ctrl"
 
       if (e.key !== "Enter") return;
-      // Đang gõ bằng bộ gõ IME (Unikey/Telex) thì không nộp bài
       if (e.isComposing || e.keyCode === 229) return;
       // Đang focus vào nút hoặc link thì để phần tử đó tự xử lý Enter
       if ((e.target as HTMLElement | null)?.closest("button, a, [role='button']")) return;
 
       e.preventDefault();
       handlers.current.onEnter();
+    };
+
+    const onPauseKey = (e: KeyboardEvent) => {
+      if (e.key !== PAUSE_KEY) return;
+      if (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return; // để tổ hợp phím khác yên
+
+      e.preventDefault(); // chặn trang trợ giúp của trình duyệt, kể cả khi giữ phím
+      ctrlAlone = false;
+      if (e.repeat) return;
+
+      const { onTogglePause, canTogglePause } = handlers.current;
+      if (!onTogglePause || !canTogglePause) return;
+      onTogglePause();
     };
 
     const onKeyUp = (e: KeyboardEvent) => {
@@ -46,11 +65,13 @@ export function useLessonHotkeys({ enabled, onEnter, onReplay }: Options) {
       ctrlAlone = false;
     };
 
+    window.addEventListener("keydown", onPauseKey, true);
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
     window.addEventListener("pointerdown", cancel); // Ctrl+click
     window.addEventListener("blur", cancel); // Ctrl+Tab rời trang
     return () => {
+      window.removeEventListener("keydown", onPauseKey, true);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("pointerdown", cancel);

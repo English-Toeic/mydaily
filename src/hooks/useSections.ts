@@ -17,9 +17,9 @@ export function useSections() {
         `
         id, title, level, sort_order, created_at,
         lessons (
-          id, section_id, title, parts, level, sort_order, created_at,
+          id, section_id, title, parts, level, sort_order, created_at, audio_url,
           sentences (
-            id, lesson_id, english, vietnamese, sort_order, created_at
+            id, lesson_id, english, vietnamese, sort_order, created_at, start_ms, end_ms, speaker
           )
         )
       `
