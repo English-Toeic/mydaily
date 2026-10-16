@@ -37,7 +37,6 @@ export function AudioTranscribeForm({
   onChanged: () => void;
 }) {
   const [sectionId, setSectionId] = useState("");
-  const [lessonId, setLessonId] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [startOrder, setStartOrder] = useState("1");
   const [skipNoise, setSkipNoise] = useState(true);
@@ -147,7 +146,6 @@ export function AudioTranscribeForm({
       sectionId: sectionId,
       segments: rows,
     });
-    // setLessonId(String(lesson.id));
 
     
     const selected = rows.filter((r) => r.include && r.english.trim());
@@ -225,7 +223,6 @@ export function AudioTranscribeForm({
           disabled={busy}
           onChange={(e) => {
             setSectionId(e.target.value);
-            setLessonId("");
           }}
         >
           <option value="">-- Chọn Section --</option>
