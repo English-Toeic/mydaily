@@ -11,7 +11,7 @@ type Options = {
   canTogglePause?: boolean;
 };
 
-const PAUSE_KEY = "F1";
+const PAUSE_KEY = "Alt";
 
 
 export function useLessonHotkeys({ enabled, onEnter, onReplay, onTogglePause, canTogglePause = false, }: Options) {
@@ -43,14 +43,16 @@ export function useLessonHotkeys({ enabled, onEnter, onReplay, onTogglePause, ca
 
     const onPauseKey = (e: KeyboardEvent) => {
       if (e.key !== PAUSE_KEY) return;
-      if (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return; // để tổ hợp phím khác yên
 
-      e.preventDefault(); // chặn trang trợ giúp của trình duyệt, kể cả khi giữ phím
+      e.preventDefault();
+
       ctrlAlone = false;
+
       if (e.repeat) return;
 
       const { onTogglePause, canTogglePause } = handlers.current;
       if (!onTogglePause || !canTogglePause) return;
+
       onTogglePause();
     };
 
