@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Deck, StudyDirection, Word } from "@/types/vocab";
-import { checkAnswer, hintTargetOf, letterCount, type Verdict } from "./answer";
+import { gradeAnswer, hintTargetOf, letterCount, type Verdict } from "./answer";
 
 export type StudyMode = StudyDirection | "mixed";
 export type Phase = "answering" | "checked";
@@ -70,6 +70,7 @@ export function useStudySession({ deck, onGrade, speak }: Options) {
   const [error, setError] = useState<string | null>(null);
   /** Tăng mỗi khi sang thẻ mới, dùng để focus và tự đọc */
   const [cardKey, setCardKey] = useState(0);
+  const [note, setNote] = useState<string | undefined>();
 
   const card = session.queue[0] ?? null;
   const answer = card ? (card.dir === "vi-en" ? card.word.english : card.word.meaning) : "";
@@ -100,12 +101,14 @@ export function useStudySession({ deck, onGrade, speak }: Options) {
     setHints(0);
     setError(null);
     setCardKey((k) => k + 1);
+    setNote(undefined);
   };
 
-  const reveal = (v: Verdict) => {
+  const reveal = (v: Verdict, n?: string) => {
     if (!card) return;
     setVerdict(v);
     setPhase("checked");
+    setNote(n);
     if (autoSpeak) speak(card.word.english);
   };
 
@@ -115,7 +118,8 @@ export function useStudySession({ deck, onGrade, speak }: Options) {
 
   const check = () => {
     if (!card || checked || grading || !input.trim()) return;
-    reveal(checkAnswer(input, answer, answerLang));
+    const r = gradeAnswer(input, answer, answerLang);
+    reveal(r.verdict, r.note);
   };
 
   const giveUp = () => {
@@ -131,6 +135,7 @@ export function useStudySession({ deck, onGrade, speak }: Options) {
     if (checked && verdict === "wrong" && input.trim()) {
       setVerdict("correct");
       setOverridden(true);
+      setNote(undefined);
     }
   };
 
@@ -196,8 +201,8 @@ export function useStudySession({ deck, onGrade, speak }: Options) {
   return {
     session, card, mode, autoSpeak, cardKey,
     input, phase, verdict, overridden, hints, maxHints, hintTarget,
-    passed, canListen, grading, error,
+    passed, canListen, grading, error, note,
     setInput, check, giveUp, hint, override, next,
-    setMode, toggleAutoSpeak, replay, restart,
+    setMode, toggleAutoSpeak, replay, restart, 
   };
 }

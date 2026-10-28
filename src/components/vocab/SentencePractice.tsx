@@ -7,16 +7,22 @@ import { Kbd } from "@/components/ui/kbd";
 import { cn } from "@/lib/utils";
 import { keepInputFocus } from "@/lib/keepInputFocus";
 import type { Word } from "@/types/vocab";
-import { checkSentence, makeHint, normalize, type SentenceVerdict } from "@/lib/sentences";
+import {
+  checkSentence, isMajor, makeHint, normalize,
+  type DiffKind, type DiffOp, type SentenceCheck, type SentenceVerdict,
+} from "@/lib/sentences";
 import { useCtrlTap } from "./useCtrlTap";
 
 type Phase = "answering" | "retry" | "checked";
+type Graded = Pick<SentenceCheck, "best" | "diff">;
 
 interface Result {
   vi: string;
   input: string;
   best: string;
+  diff: DiffOp[];
   verdict: SentenceVerdict;
+  hinted: boolean;
 }
 
 interface Props {
@@ -51,6 +57,9 @@ const TONES = {
   },
 } as const;
 
+const pillBtn =
+  "shrink-0 rounded-full px-2.5 py-1 text-xs font-medium text-muted-foreground ring-1 ring-border transition hover:bg-background hover:text-foreground touch-manipulation";
+
 export function SentencePractice({ word, speak, speaking, autoSpeak, onDone }: Props) {
   const sentences = word.sentences ?? [];
   const total = sentences.length;
@@ -59,7 +68,8 @@ export function SentencePractice({ word, speak, speaking, autoSpeak, onDone }: P
   const [input, setInput] = useState("");
   const [phase, setPhase] = useState<Phase>("answering");
   const [verdict, setVerdict] = useState<SentenceVerdict | null>(null);
-  const [best, setBest] = useState("");
+  const [graded, setGraded] = useState<Graded | null>(null);
+  const [retryInfo, setRetryInfo] = useState<RetryInfo | null>(null);
   const [hinted, setHinted] = useState(false);
   const [overridden, setOverridden] = useState(false);
   const [shaking, setShaking] = useState(false);
@@ -68,6 +78,7 @@ export function SentencePractice({ word, speak, speaking, autoSpeak, onDone }: P
 
   const current = sentences[index];
   const checked = phase === "checked";
+  const best = graded?.best ?? "";
 
   // Ctrl: nghe lại đáp án (chỉ sau khi đã kiểm tra, tránh lộ đáp án)
   useCtrlTap(() => {
@@ -82,38 +93,45 @@ export function SentencePractice({ word, speak, speaking, autoSpeak, onDone }: P
     setInput("");
     setPhase("answering");
     setVerdict(null);
-    setBest("");
+    setGraded(null);
+    setRetryInfo(null);
     setHinted(false);
     setOverridden(false);
     setShaking(false);
   };
 
-  const finish = (v: SentenceVerdict, answer: string) => {
+  const finish = (v: SentenceVerdict, r: Graded) => {
     setVerdict(v);
-    setBest(answer);
+    setGraded(r);
+    setRetryInfo(null);
     setPhase("checked");
     if (v === "wrong") setShaking(true);
-    if (autoSpeak) speak(answer);
+    if (autoSpeak) speak(r.best);
   };
+
+  const grade = () => checkSentence(input, current.en, word.english);
 
   const check = () => {
     if (checked || !input.trim()) return;
-    const r = checkSentence(input, current.en, word.english);
-    if (r.verdict !== "wrong") return finish(r.verdict, r.best);
+    const r = grade();
+    if (r.verdict !== "wrong") return finish(r.verdict, r);
 
-    // Sai lần 1 → cho sửa lại; sai lần 2 → hiện đáp án
+    // Sai lần 1 → báo lỗi ở đâu (không lộ đáp án) rồi cho sửa; sai lần 2 → hiện đáp án
     if (phase === "answering") {
       setPhase("retry");
       setVerdict("wrong");
-      setBest(r.best);
+      setGraded(r);
+      setRetryInfo(describeErrors(r, word.english));
       setShaking(true);
       return;
     }
-    finish("wrong", r.best);
+    finish("wrong", r);
   };
 
   const giveUp = () => {
-    if (!checked) finish("wrong", best || current.en[0]);
+    if (checked) return;
+    // Chấm lại câu đang gõ để phần tô màu khớp với chữ trên màn hình
+    finish("wrong", input.trim() ? grade() : { best: current.en[0], diff: [] });
   };
 
   const override = () => {
@@ -122,8 +140,11 @@ export function SentencePractice({ word, speak, speaking, autoSpeak, onDone }: P
   };
 
   const next = () => {
-    if (!checked || !verdict) return;
-    setResults((prev) => [...prev, { vi: current.vi, input: input.trim(), best, verdict }]);
+    if (!checked || !verdict || !graded) return;
+    setResults((prev) => [
+      ...prev,
+      { vi: current.vi, input: input.trim(), best: graded.best, diff: graded.diff, verdict, hinted },
+    ]);
     setIndex((i) => i + 1);
     resetCard();
   };
@@ -153,10 +174,11 @@ export function SentencePractice({ word, speak, speaking, autoSpeak, onDone }: P
   const tone = verdict ? TONES[verdict] : null;
   const VerdictIcon = tone?.Icon;
   const others = checked ? current.en.filter((a) => a !== best) : [];
+  const showDiff = verdict !== "correct" && !!input.trim();
 
   const title =
     verdict === "wrong" ? (input.trim() ? "Chưa đúng" : "Không sao, ghi nhớ nhé")
-    : verdict === "almost" ? "Gần đúng, so sánh với đáp án mẫu"
+    : verdict === "almost" ? "Gần đúng, xem các chỗ tô màu nhé"
     : overridden ? "Đã tính là đúng"
     : hinted ? "Đúng, nhưng đã dùng gợi ý"
     : "Chính xác! 🎉";
@@ -254,42 +276,47 @@ export function SentencePractice({ word, speak, speaking, autoSpeak, onDone }: P
           )}
         </div>
 
-        {/* Sai lần 1 */}
-        {phase === "retry" && (
-          <div role="status" className="flex items-center justify-between gap-3 rounded-2xl border border-red-500/30 bg-red-500/6 px-4 py-3">
-            <p className="text-sm font-medium text-red-700 dark:text-red-300">
-              Chưa đúng, sửa lại thử nhé!
-            </p>
-            <button
-              type="button"
-              {...keepInputFocus}
-              onClick={giveUp}
-              className="shrink-0 rounded-full px-2.5 py-1 text-xs font-medium text-muted-foreground ring-1 ring-border transition hover:bg-background hover:text-foreground touch-manipulation"
-            >
-              Xem đáp án
-            </button>
+        {/* Sai lần 1: chỉ ra lỗi ở đâu nhưng không lộ đáp án */}
+        {phase === "retry" && retryInfo && (
+          <div role="status" className="space-y-2 rounded-2xl border border-red-500/30 bg-red-500/6 px-4 py-3">
+            <div className="flex items-start justify-between gap-3">
+              <p className="text-sm font-medium text-red-700 dark:text-red-300">{retryInfo.summary}</p>
+              <button type="button" {...keepInputFocus} onClick={giveUp} className={pillBtn}>
+                Xem đáp án
+              </button>
+            </div>
+            {retryInfo.targetMissing && (
+              <p className="text-sm text-muted-foreground">
+                Câu cần dùng từ <span lang="en" className="font-semibold text-foreground">{word.english}</span>
+              </p>
+            )}
+            {retryInfo.flagged.length > 0 && (
+              <p className="flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground">
+                Xem lại:
+                {retryInfo.flagged.map((w) => (
+                  <span key={w} lang="en" className="rounded-md bg-red-500/10 px-1.5 py-0.5 font-medium text-red-700 dark:text-red-300">
+                    {w}
+                  </span>
+                ))}
+              </p>
+            )}
           </div>
         )}
 
         {/* Kết quả */}
-        {checked && tone && (
+        {checked && tone && graded && (
           <div role="status" className={cn("rounded-2xl border p-4", tone.box)}>
             <div className="flex items-start justify-between gap-3">
               <p className={cn("font-semibold", tone.text)}>{title}</p>
               {verdict === "wrong" && input.trim() && (
-                <button
-                  type="button"
-                  {...keepInputFocus}
-                  onClick={override}
-                  className="shrink-0 rounded-full px-2.5 py-1 text-xs font-medium text-muted-foreground ring-1 ring-border transition hover:bg-background hover:text-foreground touch-manipulation"
-                >
+                <button type="button" {...keepInputFocus} onClick={override} className={pillBtn}>
                   Tôi đúng
                 </button>
               )}
             </div>
 
             <div className="mt-3 flex items-start gap-2">
-              <AnswerDiff answer={best} input={input} highlight={verdict !== "correct" && !!input.trim()} />
+              <AnswerDiff answer={best} diff={graded.diff} highlight={showDiff} />
               <button
                 type="button"
                 {...keepInputFocus}
@@ -300,10 +327,6 @@ export function SentencePractice({ word, speak, speaking, autoSpeak, onDone }: P
                 <Volume2 className={cn("size-4", speaking && "animate-pulse text-primary")} />
               </button>
             </div>
-
-            {verdict !== "correct" && input.trim() && (
-              <p className="mt-1 text-xs text-muted-foreground">Từ được tô đỏ là chỗ bạn viết thiếu hoặc sai.</p>
-            )}
 
             {others.length > 0 && (
               <p lang="en" className="mt-3 border-t border-current/10 pt-2 text-sm text-muted-foreground">
@@ -342,7 +365,7 @@ export function SentencePractice({ word, speak, speaking, autoSpeak, onDone }: P
               disabled={!input.trim()}
               className="h-12 flex-1 rounded-xl text-base touch-manipulation"
             >
-              Kiểm tra
+              {phase === "retry" ? "Kiểm tra lại" : "Kiểm tra"}
             </Button>
           </>
         ) : (
@@ -371,33 +394,146 @@ export function SentencePractice({ word, speak, speaking, autoSpeak, onDone }: P
   );
 }
 
-/* ---------- Đáp án có tô đỏ các từ người dùng viết thiếu/sai ---------- */
+/* ---------- Mô tả lỗi khi sai lần 1 (không lộ đáp án) ---------- */
 
-function AnswerDiff({ answer, input, highlight }: { answer: string; input: string; highlight: boolean }) {
-  const userTokens = useMemo(() => new Set(normalize(input)), [input]);
+interface RetryInfo {
+  summary: string;
+  flagged: string[]; // các từ người dùng viết cần xem lại
+  targetMissing: boolean;
+}
+
+function describeErrors(r: SentenceCheck, target: string): RetryInfo {
+  const targetMissing = r.targetMissing && !!target;
+  // Khác quá nhiều thì đếm lỗi không còn ý nghĩa
+  if (r.similarity < 0.3) {
+    return { summary: "Câu còn khác khá nhiều, thử dịch lại từng ý nhé!", flagged: [], targetMissing };
+  }
+
+  let wrong = 0, missing = 0, extra = 0, swap = 0, small = 0;
+  const flagged: string[] = [];
+  for (const o of r.diff) {
+    switch (o.kind) {
+      case "ok": continue;
+      case "missing": missing++; continue;
+      case "extra": extra++; break;
+      case "wrong": wrong++; break;
+      case "swap": swap++; break;
+      default: small++; // typo, form, minor
+    }
+    if (o.user && !flagged.includes(o.user)) flagged.push(o.user);
+  }
+
+  const parts = [
+    wrong && `sai ${wrong} từ`,
+    missing && `thiếu ${missing} từ`,
+    extra && `thừa ${extra} từ`,
+    swap && "sai thứ tự từ",
+    small && `${small} lỗi nhỏ (chính tả, dạng từ)`,
+  ].filter(Boolean) as string[];
+
+  const text = parts.length ? parts.join(", ") : "chưa dùng đúng từ đang học";
+  return { summary: `${text[0].toUpperCase()}${text.slice(1)}. Sửa lại thử nhé!`, flagged, targetMissing };
+}
+
+/* ---------- Đáp án có tô màu theo diff ---------- */
+
+type Mark = "ok" | "soft" | "hard";
+interface AnnotatedWord { text: string; mark: Mark }
+interface Correction { user: string; answer: string; kind: DiffKind }
+
+const KIND_LABEL: Partial<Record<DiffKind, string>> = {
+  typo: "chính tả",
+  form: "dạng từ",
+  minor: "hư từ",
+  wrong: "sai từ",
+};
+
+/**
+ * Diff chạy trên token đã chuẩn hoá ("don't" → do, not), nên cần map ngược về từ gốc.
+ * Mỗi từ gốc normalize ra bao nhiêu token thì "ăn" bấy nhiêu op (trừ op "extra").
+ */
+function annotate(answer: string, diff: DiffOp[]): AnnotatedWord[] {
+  const words = answer.split(/\s+/).filter(Boolean);
+  const ops = diff.filter((o) => o.kind !== "extra");
+  const counts = words.map((w) => normalize(w).length);
+  const plain = () => words.map((text) => ({ text, mark: "ok" as Mark }));
+
+  if (!diff.length || counts.reduce((a, b) => a + b, 0) !== ops.length) return plain();
+
+  let k = 0;
+  return words.map((text, i) => {
+    const mine = ops.slice(k, (k += counts[i]));
+    const mark: Mark = mine.some(isMajor) ? "hard" : mine.some((o) => o.kind !== "ok") ? "soft" : "ok";
+    return { text, mark };
+  });
+}
+
+const MARK_CLASS: Record<Mark, string> = {
+  ok: "",
+  soft: "rounded bg-amber-500/15 px-0.5 text-amber-700 underline decoration-amber-500/60 decoration-dotted decoration-2 underline-offset-4 dark:text-amber-300",
+  hard: "rounded bg-red-500/15 px-0.5 text-red-700 underline decoration-red-500/50 decoration-2 underline-offset-4 dark:text-red-300",
+};
+
+function AnswerDiff({
+  answer, diff, highlight, compact = false,
+}: {
+  answer: string;
+  diff: DiffOp[];
+  highlight: boolean;
+  compact?: boolean;
+}) {
+  const words = useMemo(() => annotate(answer, highlight ? diff : []), [answer, diff, highlight]);
+  const extras = highlight ? diff.filter((o) => o.kind === "extra").map((o) => o.user!) : [];
+  const fixes: Correction[] = highlight
+    ? diff
+        .filter((o) => o.user && o.answer && KIND_LABEL[o.kind])
+        .map((o) => ({ user: o.user!, answer: o.answer!, kind: o.kind }))
+    : [];
+  const hasMarks = words.some((w) => w.mark !== "ok");
+
   return (
-    <p lang="en" className="flex-1 text-lg font-semibold leading-snug">
-      {answer.split(/\s+/).map((w, i) => {
-        const toks = normalize(w);
-        const missing = highlight && toks.length > 0 && toks.some((t) => !userTokens.has(t));
-        return (
+    <div className="min-w-0 flex-1">
+      <p lang="en" className={cn("leading-snug", compact ? "font-medium" : "text-lg font-semibold")}>
+        {words.map((w, i) => (
           <Fragment key={i}>
-            <span
-              className={cn(
-                missing &&
-                  "rounded bg-red-500/15 px-0.5 text-red-700 underline decoration-red-500/50 decoration-2 underline-offset-4 dark:text-red-300"
-              )}
-            >
-              {w}
-            </span>{" "}
+            <span className={MARK_CLASS[w.mark]}>{w.text}</span>{" "}
           </Fragment>
-        );
-      })}
-    </p>
+        ))}
+      </p>
+
+      {!compact && fixes.length > 0 && (
+        <ul className="mt-2 space-y-0.5 text-sm">
+          {fixes.slice(0, 4).map((f, i) => (
+            <li key={i} lang="en" className="text-muted-foreground">
+              <span className="line-through decoration-red-500/60">{f.user}</span>
+              {" → "}
+              <span className="font-medium text-foreground">{f.answer}</span>{" "}
+              <span lang="vi" className="text-xs">({KIND_LABEL[f.kind]})</span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {extras.length > 0 && (
+        <p className="mt-1 text-sm text-muted-foreground">
+          Thừa:{" "}
+          {extras.map((w, i) => (
+            <span key={i} lang="en" className="mr-1.5 line-through decoration-red-500/60">{w}</span>
+          ))}
+        </p>
+      )}
+
+      {!compact && hasMarks && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          <span className="text-red-600 dark:text-red-400">Đỏ</span>: lỗi nặng ·{" "}
+          <span className="text-amber-600 dark:text-amber-400">Vàng</span>: lỗi nhỏ (chính tả, dạng từ, mạo từ, thứ tự)
+        </p>
+      )}
+    </div>
   );
 }
 
-/* ---------- Màn tổng kết 5 câu ---------- */
+/* ---------- Màn tổng kết ---------- */
 
 function PracticeSummary({
   word, results, speak, onRestart, onDone,
@@ -409,7 +545,7 @@ function PracticeSummary({
   onDone: () => void;
 }) {
   const score = results.filter((r) => r.verdict !== "wrong").length;
-  const perfect = score === results.length;
+  const perfect = results.every((r) => r.verdict === "correct" && !r.hinted);
 
   return (
     <div className="mx-auto flex w-full max-w-lg flex-col gap-5 px-4 py-4 sm:py-8">
@@ -434,8 +570,20 @@ function PracticeSummary({
                   <Icon className="size-3" strokeWidth={3} />
                 </span>
                 <div className="min-w-0 flex-1 space-y-0.5">
-                  <p lang="vi" className="text-sm text-muted-foreground">{r.vi}</p>
-                  <p lang="en" className="font-medium">{r.best}</p>
+                  <p lang="vi" className="text-sm text-muted-foreground">
+                    {r.vi}
+                    {r.hinted && (
+                      <span className="ml-1.5 rounded bg-amber-500/15 px-1 text-[11px] text-amber-700 dark:text-amber-300">
+                        gợi ý
+                      </span>
+                    )}
+                  </p>
+                  <AnswerDiff
+                    answer={r.best}
+                    diff={r.diff}
+                    highlight={r.verdict !== "correct" && !!r.input}
+                    compact
+                  />
                   {r.verdict !== "correct" && r.input && (
                     <p lang="en" className="text-sm text-muted-foreground">
                       Bạn viết: <span className={tone.text}>{r.input}</span>

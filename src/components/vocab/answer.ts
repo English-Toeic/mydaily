@@ -1,7 +1,25 @@
+import { editDistance, lemma, stripDiacritics, toUS, typoTolerance } from "@/lib/text-match";
+
 export type Verdict = "correct" | "almost" | "wrong";
-type Lang = "en" | "vi";
+export type Lang = "en" | "vi";
+
+export type AnswerCheck = {
+  verdict: Verdict;
+  /** Giải thích ngắn cho người học: sai dấu, sai dạng từ… */
+  note?: string;
+  /** Nghĩa khớp nhất */
+  matched?: string;
+};
+
+// Giữ lại để file khác vẫn import được
+export { stripDiacritics };
+export const levenshtein = editDistance;
 
 const PUNCT = /[.,!?;:"“”«»[\]{}…]/g;
+const POS_TAG = /\((?:n|v|adj|adv|prep|conj|pron|det|phr\.?\s?v|idiom|inf|formal|informal)\.?\)/gi;
+const EN_PLACEHOLDER = /\b(?:sb|sth|someone|somebody|something|one's|oneself)\b/g;
+/** Tiền tố danh từ hoá / trạng từ, bỏ đi vẫn giữ nghĩa: "sự phát triển" ≈ "phát triển" */
+const VI_PREFIX = /^(?:sự|việc|cuộc|cái|con|chiếc|nỗi|niềm|một cách|bị|được)\s+/;
 
 /** Chuẩn hoá để so sánh: chữ thường, bỏ dấu câu, bỏ ghi chú "(n)", "(v)"… */
 export function normalize(s: string, lang: Lang): string {
@@ -9,64 +27,101 @@ export function normalize(s: string, lang: Lang): string {
     .normalize("NFC")
     .toLowerCase()
     .replace(/\(.*?\)/g, " ")
-    .replace(/[‘’`]/g, "'")
+    .replace(/[‘’`´]/g, "'")
     .replace(PUNCT, " ")
+    .replace(/-/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-  // "to run" ≈ "run" (chỉ áp dụng tiếng Anh, vì "to" trong tiếng Việt là "to lớn")
-  if (lang === "en") out = out.replace(/^to /, "");
+
+  if (lang === "en") {
+    // "look after sb" ≈ "look after", nhưng đáp án là chính "something" thì giữ nguyên
+    const noPlaceholder = out.replace(EN_PLACEHOLDER, " ").replace(/\s+/g, " ").trim();
+    if (noPlaceholder) out = noPlaceholder;
+    // "to run" ≈ "run", "an apple" ≈ "apple"
+    let prev: string;
+    do {
+      prev = out;
+      out = out.replace(/^(?:to|a|an|the) /, "");
+    } while (out !== prev);
+  }
   return out;
 }
 
-/** Một đáp án có thể chứa nhiều nghĩa: "chạy, chạy bộ; điều hành" */
+/**
+ * Một đáp án có thể chứa nhiều nghĩa: "chạy, chạy bộ; điều hành".
+ * Phần trong ngoặc là tuỳ chọn: "(be) interested in" chấp nhận cả có và không có "be".
+ */
 export function answerVariants(answer: string, lang: Lang): string[] {
-  const cleaned = answer.replace(/\(.*?\)/g, " ");
-  const parts = [cleaned, ...cleaned.split(/[,;/|]/)];
+  const base = answer.replace(POS_TAG, " ");
+  const sources = [base.replace(/\(.*?\)/g, " "), base.replace(/[()]/g, " ")];
+  const parts = sources.flatMap((s) => [s, ...s.split(/[,;/|]/)]);
   return [...new Set(parts.map((p) => normalize(p, lang)).filter(Boolean))];
 }
 
-export function stripDiacritics(s: string): string {
-  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d");
-}
+const RANK: Record<Verdict, number> = { correct: 0, almost: 1, wrong: 2 };
+const mapWords = (s: string, f: (w: string) => string) => s.split(" ").map(f).join(" ");
+const stripViPrefix = (s: string) => s.replace(VI_PREFIX, "");
 
-export function levenshtein(a: string, b: string): number {
-  if (a === b) return 0;
-  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
-  for (let i = 1; i <= a.length; i++) {
-    const cur = [i];
-    for (let j = 1; j <= b.length; j++) {
-      cur[j] = Math.min(
-        prev[j] + 1,
-        cur[j - 1] + 1,
-        prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
-      );
+function compare(a: string, v: string, lang: Lang): AnswerCheck {
+  const hit = (verdict: Verdict, note?: string): AnswerCheck => ({ verdict, note, matched: v });
+
+  if (lang === "en") {
+    if (a.replace(/ /g, "") === v.replace(/ /g, "")) return hit("correct");
+    if (mapWords(a, toUS) === mapWords(v, toUS)) {
+      return hit("correct", `Khác cách viết Anh-Anh / Anh-Mỹ ("${v}")`);
     }
-    prev = cur;
+    if (mapWords(a, lemma) === mapWords(v, lemma)) {
+      return hit("almost", `Đúng từ nhưng khác dạng, đáp án là "${v}"`);
+    }
+  } else {
+    if (stripDiacritics(a) === stripDiacritics(v)) return hit("almost", "Sai hoặc thiếu dấu");
+    const pa = stripViPrefix(a);
+    const pv = stripViPrefix(v);
+    if (pa === pv) return hit("correct", `Đầy đủ: "${v}"`);
+    if (stripDiacritics(pa) === stripDiacritics(pv)) return hit("almost", "Sai hoặc thiếu dấu");
   }
-  return prev[b.length];
+
+  const tol = typoTolerance(letterCount(v));
+  const [x, y] = lang === "vi" ? [stripDiacritics(a), stripDiacritics(v)] : [a, v];
+  if (tol && editDistance(x, y) <= tol) return hit("almost", `Sai chính tả nhẹ, đáp án là "${v}"`);
+
+  return hit("wrong");
 }
 
-/**
- * correct: khớp hoàn toàn với một trong các nghĩa
- * almost:  chỉ sai dấu tiếng Việt hoặc gõ nhầm 1–2 ký tự (vẫn tính là qua)
- * wrong:   còn lại
- */
-export function checkAnswer(input: string, answer: string, lang: Lang): Verdict {
+function matchOne(a: string, variants: string[], lang: Lang): AnswerCheck {
+  let best: AnswerCheck = { verdict: "wrong", matched: variants[0] };
+  for (const v of variants) {
+    if (a === v) return { verdict: "correct", matched: v };
+    const r = compare(a, v, lang);
+    if (RANK[r.verdict] < RANK[best.verdict]) best = r;
+  }
+  return best;
+}
+
+/** Bản chấm chi tiết, có kèm lời giải thích */
+export function gradeAnswer(input: string, answer: string, lang: Lang): AnswerCheck {
   const a = normalize(input, lang);
-  if (!a) return "wrong";
+  if (!a) return { verdict: "wrong" };
 
   const variants = answerVariants(answer, lang);
-  if (variants.includes(a)) return "correct";
+  const whole = matchOne(a, variants, lang);
+  if (whole.verdict === "correct") return whole;
 
-  const bare = stripDiacritics(a);
-  for (const v of variants) {
-    if (stripDiacritics(v) === bare) return "almost";
-    // Từ ngắn (< 4 ký tự) không cho sai, tránh "bad" lọt thành "bat"
-    const tolerance = v.length >= 8 ? 2 : v.length >= 4 ? 1 : 0;
-    if (tolerance && levenshtein(a, v) <= tolerance) return "almost";
+  // Người học gõ nhiều nghĩa "chạy, điều hành": nghĩa nào cũng phải đúng (chống đoán bừa)
+  const parts = input.split(/[,;/]/).map((p) => normalize(p, lang)).filter(Boolean);
+  if (parts.length > 1) {
+    const results = parts.map((p) => matchOne(p, variants, lang));
+    if (results.every((r) => r.verdict !== "wrong")) {
+      const merged = results.find((r) => r.verdict === "almost") ?? results[0];
+      if (RANK[merged.verdict] < RANK[whole.verdict]) return merged;
+    }
   }
-  return "wrong";
+  return whole;
 }
+
+/** Giữ API cũ */
+export const checkAnswer = (input: string, answer: string, lang: Lang): Verdict =>
+  gradeAnswer(input, answer, lang).verdict;
 
 /** Đáp án chính dùng để gợi ý: nghĩa đầu tiên, bỏ ghi chú trong ngoặc */
 export const hintTargetOf = (answer: string) =>
@@ -82,7 +137,7 @@ export function hintWords(target: string, revealed: number): (string | null)[][]
     .filter(Boolean)
     .map((word) =>
       Array.from(word).map((ch) => {
-        if (!/[\p{L}\p{N}]/u.test(ch)) return ch; // giữ nguyên dấu gạch nối, nháy…
+        if (!/[\p{L}\p{N}]/u.test(ch)) return ch;
         return shown++ < revealed ? ch : null;
       })
     );

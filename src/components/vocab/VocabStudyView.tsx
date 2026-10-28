@@ -263,6 +263,7 @@ export function VocabStudyView({ deck, onBack, onGrade }: Props) {
             overridden={s.overridden}
             passed={s.passed}
             onOverride={s.override}
+            note={s.note}
           />
         )}
       </div>
@@ -301,7 +302,7 @@ export function VocabStudyView({ deck, onBack, onGrade }: Props) {
               disabled={!s.input.trim()}
               className="h-12 flex-1 rounded-xl text-base touch-manipulation"
             >
-              Kiểm tra
+              Kiểm tra 1
             </Button>
           </>
         ) : (
@@ -428,13 +429,14 @@ const TONE = {
 } as const;
 
 function Feedback({
-  word, verdict, input, hinted, overridden, passed, onOverride,
+  word, verdict, input, hinted, overridden, note, passed, onOverride,
 }: {
   word: Word;
   verdict: Verdict;
   input: string;
   hinted: boolean;
   overridden: boolean;
+  note?: string;
   passed: boolean;
   onOverride: () => void;
 }) {
@@ -478,6 +480,8 @@ function Feedback({
           Từ này sẽ quay lại sau vài từ nữa.
         </p>
       )}
+
+      {note && <p className="mt-1 text-sm text-(--tone)/90">{note}</p>}
     </div>
   );
 }
