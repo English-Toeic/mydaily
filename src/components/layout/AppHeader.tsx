@@ -2,16 +2,19 @@ import { Clock, Flame, GraduationCap } from "lucide-react";
 import { cn, formatDuration } from "@/lib/utils";
 import type { View } from "@/app/routes";
 import { NAV_ITEMS } from "./navItems";
+import { STREAK_MIN_SECONDS } from "@/hooks/useStudyTracker";
 
 type Props = {
   view: View;
   streak: number;
+  streakDoneToday: boolean;
   todaySeconds: number;
+  counting: boolean;
   onNavigate: (view: View) => void;
 };
 
-export function AppHeader({ view, streak, todaySeconds, onNavigate }: Props) {
-  const studiedToday = todaySeconds > 0;
+export function AppHeader({ view, streak, streakDoneToday, todaySeconds, counting, onNavigate }: Props) {
+  const remaining = Math.max(0, STREAK_MIN_SECONDS - todaySeconds);
 
   return (
     <header className="sticky top-0 z-30 border-b border-border/60 bg-background/70 backdrop-blur-xl supports-backdrop-filter:bg-background/60">
@@ -56,23 +59,42 @@ export function AppHeader({ view, streak, todaySeconds, onNavigate }: Props) {
         </nav>
 
         {/* Stats chips */}
-        <div className="flex items-center gap-1 rounded-full border bg-background/80 p-1 shadow-sm">
-          <span
-            title={studiedToday ? "Đã giữ chuỗi hôm nay" : "Học ngay để giữ chuỗi"}
+        <div className="flex items-center gap-2">
+          <div
+            title={
+              streakDoneToday
+                ? `Chuỗi ${streak} ngày, hôm nay đã xong`
+                : `Học thêm ${formatDuration(remaining)} để ${streak ? "giữ" : "bắt đầu"} chuỗi`
+            }
             className={cn(
               "flex items-center gap-1 rounded-full px-2.5 py-1 text-sm font-semibold tabular-nums transition-colors",
-              studiedToday
-                ? "bg-orange-500/10 text-orange-500"
-                : "text-muted-foreground"
+              streakDoneToday
+                ? "bg-orange-500/10 text-orange-600 dark:text-orange-400"
+                : "bg-muted text-muted-foreground"
             )}
           >
-            <Flame className={cn("h-4 w-4", studiedToday && "fill-orange-500/30")} />
+            <Flame className={cn("size-4", streakDoneToday && "fill-orange-500/30")} />
             {streak}
-          </span>
-          <span className="flex items-center gap-1 rounded-full px-2.5 py-1 text-sm tabular-nums text-muted-foreground">
-            <Clock className="h-4 w-4" />
+          </div>
+
+          <div
+            title={counting ? "Đang tính giờ học" : "Tạm dừng, không có thao tác trong 5 giây"}
+            className="flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-sm tabular-nums"
+          >
+            <span className="relative flex size-2">
+              {counting && (
+                <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-500 opacity-60 motion-reduce:animate-none" />
+              )}
+              <span
+                className={cn(
+                  "relative inline-flex size-2 rounded-full transition-colors",
+                  counting ? "bg-emerald-500" : "bg-muted-foreground/40"
+                )}
+              />
+            </span>
+            <Clock className="size-4 text-muted-foreground" />
             {formatDuration(todaySeconds)}
-          </span>
+          </div>
         </div>
       </div>
     </header>

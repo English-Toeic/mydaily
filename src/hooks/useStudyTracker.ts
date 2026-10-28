@@ -1,53 +1,85 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { todayKey, diffDays } from "@/lib/storage";
 import type { StudyState } from "@/types";
 
-const IDLE_MS = 30_000;
+/** Không thao tác quá thời gian này thì dừng đếm */
+export const IDLE_MS = 5_000;
+/** Số giây học tối thiểu để một ngày được tính vào streak */
+export const STREAK_MIN_SECONDS = 60;
+
 const TICK_MS = 1_000;
 const FLUSH_MS = 15_000;
 
-const ACTIVITY_EVENTS = ["keydown", "pointerdown", "input", "wheel", "touchstart"] as const;
+const ACTIVITY_EVENTS = [
+  "keydown", "pointerdown", "input", "wheel", "touchstart", "compositionupdate",
+] as const;
 
-const initial: StudyState = { daily: {}, streak: 0 };
+/* ---------- Ngày theo giờ địa phương (tránh lệch UTC: 0h–7h ở VN) ---------- */
+const pad = (n: number) => String(n).padStart(2, "0");
+export const dayKey = (d = new Date()) =>
+  `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
-async function getUserId() {
-  // getSession đọc từ bộ nhớ, không gọi mạng như getUser
-  const { data } = await supabase.auth.getSession();
-  return data.session?.user.id ?? null;
+const addDays = (key: string, n: number) => {
+  const [y, m, d] = key.split("-").map(Number);
+  return dayKey(new Date(y, m - 1, d + n));
+};
+
+/* ---------- Streak suy ra từ dữ liệu từng ngày ---------- */
+export function computeStreak(daily: Record<string, number>, today: string) {
+  const done = (k: string) => (daily[k] ?? 0) >= STREAK_MIN_SECONDS;
+  const doneToday = done(today);
+
+  // Hôm nay chưa học đủ thì chuỗi vẫn còn nếu hôm qua có học
+  let cursor = doneToday ? today : addDays(today, -1);
+  let streak = 0;
+  while (done(cursor)) {
+    streak++;
+    cursor = addDays(cursor, -1);
+  }
+
+  const lastStudyDate = Object.keys(daily)
+    .filter(done)
+    .reduce<string | undefined>((max, k) => (!max || k > max ? k : max), undefined);
+
+  return { streak, doneToday, lastStudyDate };
 }
 
+/* ---------- Hook ---------- */
 export function useStudyTracker(active: boolean) {
-  const [state, setState] = useState<StudyState>(initial);
+  const [daily, setDaily] = useState<Record<string, number>>({});
   const [ready, setReady] = useState(false);
-
-  const stateRef = useRef(state);
-  stateRef.current = state;
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [idle, setIdle] = useState(true);
+  const [today, setToday] = useState(dayKey);
 
   const readyRef = useRef(false);
-  const lastActionRef = useRef(Date.now());
-  const dirtyRef = useRef(false);
+  const lastActionRef = useRef(0);
+  const lastTickRef = useRef(0);
+  const carryMsRef = useRef(0); // phần lẻ < 1s chưa cộng
+  const pendingRef = useRef<Record<string, number>>({}); // giây chưa lưu, theo ngày
+  const flushingRef = useRef(false);
 
   // ---- Load ban đầu ----
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [{ data: daily }, { data: meta }] = await Promise.all([
-        supabase.from("study_daily").select("day, seconds"),
-        supabase.from("study_meta").select("streak, last_study_date").maybeSingle(),
-      ]);
+      const { data, error } = await supabase
+        .from("study_daily")
+        .select("day, seconds")
+        .order("day", { ascending: false })
+        .limit(1000);
       if (cancelled) return;
+      if (error) setLoadError(error.message);
 
-      const dailyMap: Record<string, number> = {};
-      (daily ?? []).forEach((r) => (dailyMap[r.day] = r.seconds));
+      const fromDb: Record<string, number> = {};
+      (data ?? []).forEach((r) => (fromDb[r.day] = r.seconds));
 
-      const today = todayKey();
-      setState((prev) => ({
-        // Cộng dồn số giây đã đếm trong lúc chờ load, không ghi đè
-        daily: { ...dailyMap, [today]: (dailyMap[today] ?? 0) + (prev.daily[today] ?? 0) },
-        streak: meta?.streak ?? 0,
-        lastStudyDate: meta?.last_study_date ?? undefined,
-      }));
+      // Cộng phần đã đếm trong lúc chờ load (chưa flush vì flush đợi ready)
+      setDaily((local) => {
+        const merged = { ...fromDb };
+        for (const [k, v] of Object.entries(local)) merged[k] = (merged[k] ?? 0) + v;
+        return merged;
+      });
       readyRef.current = true;
       setReady(true);
     })();
@@ -60,94 +92,127 @@ export function useStudyTracker(active: boolean) {
     lastActionRef.current = Date.now();
   }, []);
 
-  // ---- Flush: đọc state qua ref, không gây side effect trong setState ----
+  // ---- Flush: gửi phần cộng thêm (delta), an toàn với nhiều tab/thiết bị ----
   const flush = useCallback(async () => {
-    if (!dirtyRef.current || !readyRef.current) return; // chưa load xong thì không ghi đè DB
-    dirtyRef.current = false;
+    if (!readyRef.current || flushingRef.current) return;
+    const entries = Object.entries(pendingRef.current).filter(([, s]) => s > 0);
+    if (!entries.length) return;
 
-    const uid = await getUserId();
-    if (!uid) {
-      dirtyRef.current = true;
-      return;
+    pendingRef.current = {};
+    flushingRef.current = true;
+    try {
+      const results = await Promise.all(
+        entries.map(([day, seconds]) =>
+          supabase.rpc("add_study_seconds", { p_day: day, p_seconds: seconds })
+        )
+      );
+      // Lỗi (mất mạng, hết phiên…) thì trả lại hàng đợi để lần sau gửi tiếp
+      results.forEach(({ error }, i) => {
+        if (!error) return;
+        const [day, s] = entries[i];
+        pendingRef.current[day] = (pendingRef.current[day] ?? 0) + s;
+      });
+    } finally {
+      flushingRef.current = false;
     }
-
-    const today = todayKey();
-    const seconds = stateRef.current.daily[today] ?? 0;
-    const { error } = await supabase
-      .from("study_daily")
-      .upsert({ user_id: uid, day: today, seconds });
-    if (error) dirtyRef.current = true; // lỗi mạng thì lần sau thử lại
   }, []);
 
-  // ---- Streak: chỉ chạy khi đã có dữ liệu từ DB ----
-  const bumpStreak = useCallback(async () => {
-    if (!readyRef.current) return;
-    const prev = stateRef.current;
-    const today = todayKey();
-    if (prev.lastStudyDate === today) return;
-
-    const d = prev.lastStudyDate ? diffDays(prev.lastStudyDate, today) : null;
-    const streak = d === 1 ? prev.streak + 1 : 1;
-
-    setState((s) => ({ ...s, streak, lastStudyDate: today }));
-
-    const uid = await getUserId();
-    if (!uid) return;
-    await supabase
-      .from("study_meta")
-      .upsert({ user_id: uid, streak, last_study_date: today });
-  }, []);
-
-  // ---- Tự nhận biết hoạt động khi đang học ----
+  // ---- Theo dõi thao tác + đếm thời gian khi đang học ----
   useEffect(() => {
     if (!active) return;
-    lastActionRef.current = Date.now(); // vào bài là bắt đầu tính ngay
+
+    const start = Date.now();
+    lastActionRef.current = start; // vào bài là bắt đầu tính
+    lastTickRef.current = start;
+    carryMsRef.current = 0;
 
     const onActivity = () => {
       lastActionRef.current = Date.now();
     };
     const opts = { capture: true, passive: true } as const;
     ACTIVITY_EVENTS.forEach((ev) => window.addEventListener(ev, onActivity, opts));
+
+    const tick = () => {
+      const now = Date.now();
+      const from = lastTickRef.current;
+      lastTickRef.current = now;
+
+      // Chỉ tab đang hiển thị và có focus mới được đếm → không đếm đôi khi mở nhiều tab
+      const focused = !document.hidden && document.hasFocus();
+      setIdle(!(focused && now - lastActionRef.current < IDLE_MS));
+      if (!focused) return;
+
+      // Chỉ tính đến đúng thời điểm (thao tác cuối + IDLE_MS), không làm tròn lên cả tick
+      const until = Math.min(now, lastActionRef.current + IDLE_MS);
+      if (until <= from) return;
+
+      carryMsRef.current += until - from;
+      const secs = Math.floor(carryMsRef.current / 1000);
+      if (!secs) return;
+      carryMsRef.current -= secs * 1000;
+
+      const day = dayKey();
+      setToday(day);
+      pendingRef.current[day] = (pendingRef.current[day] ?? 0) + secs;
+      setDaily((prev) => ({ ...prev, [day]: (prev[day] ?? 0) + secs }));
+    };
+
+    // Quay lại tab/cửa sổ: không tính khoảng thời gian đã rời đi
+    const resetTick = () => {
+      lastTickRef.current = Date.now();
+    };
+    window.addEventListener("focus", resetTick);
+    document.addEventListener("visibilitychange", resetTick);
+
+    const timer = setInterval(tick, TICK_MS);
     return () => {
+      tick(); // chốt phần đang đếm dở trước khi rời bài
+      clearInterval(timer);
       ACTIVITY_EVENTS.forEach((ev) => window.removeEventListener(ev, onActivity, opts));
+      window.removeEventListener("focus", resetTick);
+      document.removeEventListener("visibilitychange", resetTick);
     };
   }, [active]);
 
-  // ---- Đếm giây ----
+  // ---- Flush định kỳ, khi ẩn tab và khi rời trang ----
   useEffect(() => {
-    if (!active) return;
-    const timer = setInterval(() => {
-      if (document.hidden) return;
-      if (Date.now() - lastActionRef.current > IDLE_MS) return;
-      const today = todayKey();
-      dirtyRef.current = true;
-      setState((prev) => ({
-        ...prev,
-        daily: { ...prev.daily, [today]: (prev.daily[today] ?? 0) + 1 },
-      }));
-    }, TICK_MS);
-    return () => clearInterval(timer);
-  }, [active]);
-
-  // ---- Flush định kỳ và khi rời trang ----
-  useEffect(() => {
-    const t = setInterval(flush, FLUSH_MS);
+    const t = setInterval(() => {
+      setToday(dayKey()); // cập nhật khi qua nửa đêm kể cả lúc không học
+      flush();
+    }, FLUSH_MS);
     const onVisibility = () => {
       if (document.hidden) flush();
-      else lastActionRef.current = Date.now(); // quay lại tab thì tính là hoạt động
+      else setToday(dayKey());
     };
-    const onUnload = () => flush();
-    window.addEventListener("beforeunload", onUnload);
+    window.addEventListener("pagehide", flush);
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
       clearInterval(t);
       flush();
-      window.removeEventListener("beforeunload", onUnload);
+      window.removeEventListener("pagehide", flush);
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [flush]);
 
-  const todaySeconds = state.daily[todayKey()] ?? 0;
+  const { streak, doneToday, lastStudyDate } = useMemo(
+    () => computeStreak(daily, today),
+    [daily, today]
+  );
 
-  return { state, ready, todaySeconds, streak: state.streak, registerActivity, bumpStreak };
+  const state: StudyState = useMemo(
+    () => ({ daily, streak, lastStudyDate }),
+    [daily, streak, lastStudyDate]
+  );
+
+  return {
+    state,
+    ready,
+    loadError,
+    todaySeconds: daily[today] ?? 0,
+    streak,
+    streakDoneToday: doneToday,
+    /** Đang thực sự đếm giờ (đang ở bài + có thao tác trong 5s gần nhất) */
+    counting: active && !idle,
+    registerActivity,
+  };
 }

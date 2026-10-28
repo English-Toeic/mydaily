@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { SectionList } from "@/components/SectionList";
 import { LessonList } from "@/components/lesson-list";
 import { LessonView } from "@/components/lesson-view";
@@ -32,12 +32,8 @@ export function MainApp() {
   const isFocus = FOCUS_VIEWS.has(view.name);
 
   // Chỉ tính thời gian học khi đang ở bài học (giữ nguyên hành vi cũ)
-  const { state: study, ready: studyReady, todaySeconds, streak, registerActivity, bumpStreak } =
+  const { state: study, todaySeconds, streak, streakDoneToday, counting, registerActivity } =
   useStudyTracker(isLesson);
-
-  useEffect(() => {
-    if (isLesson && studyReady) bumpStreak();
-  }, [isLesson, studyReady, bumpStreak]);
 
   // ---- Lookup O(1) ----
   const sectionById = useMemo(() => new Map(sections.map((s) => [s.id, s])), [sections]);
@@ -190,7 +186,9 @@ export function MainApp() {
         <AppHeader
           view={view}
           streak={streak}
+          streakDoneToday={streakDoneToday}
           todaySeconds={todaySeconds}
+          counting={counting}
           onNavigate={navigate}
         />
 
