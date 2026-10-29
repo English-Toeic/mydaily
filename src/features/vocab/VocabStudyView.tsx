@@ -13,7 +13,7 @@ import { hintWords, type Verdict } from "./answer";
 import { useStudySession, type RestartKind, type StudyMode } from "./useStudySession";
 import { useCtrlTap } from "./useCtrlTap";
 import { StudySummary } from "./StudySummary";
-import { SentencePractice } from "./SentencePractice";
+import { SentencePractice } from "./sentence-practice";
 
 interface Props {
   deck: Deck;
