@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import type { StudyState } from "@/types";
+import { STREAK_MIN_SECONDS } from "@/lib/study";
 
 /** Không thao tác quá thời gian này thì dừng đếm */
 export const IDLE_MS = 5_000;
-/** Số giây học tối thiểu để một ngày được tính vào streak */
-export const STREAK_MIN_SECONDS = 60;
 
 const TICK_MS = 1_000;
 const FLUSH_MS = 15_000;
@@ -208,6 +207,7 @@ export function useStudyTracker(active: boolean) {
     state,
     ready,
     loadError,
+    today,
     todaySeconds: daily[today] ?? 0,
     streak,
     streakDoneToday: doneToday,

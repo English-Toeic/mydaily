@@ -7,7 +7,7 @@ export const GOAL_PRESETS = [5, 10, 15, 20, 30, 45, 60];
 export function useDailyGoal() {
   const [minutes, setMinutes] = useState(() => {
     const v = Number(localStorage.getItem(KEY));
-    return v > 0 ? v : 15;
+    return v > 0 ? v : 60;
   });
 
   const update = (m: number) => {

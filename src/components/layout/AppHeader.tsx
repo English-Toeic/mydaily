@@ -2,7 +2,7 @@ import { Clock, Flame, GraduationCap } from "lucide-react";
 import { cn, formatDuration } from "@/lib/utils";
 import type { View } from "@/app/routes";
 import { NAV_ITEMS } from "./navItems";
-import { STREAK_MIN_SECONDS } from "@/hooks/useStudyTracker";
+import { STREAK_MIN_SECONDS } from "@/lib/study";
 
 type Props = {
   view: View;

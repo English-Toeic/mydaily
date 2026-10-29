@@ -2,7 +2,6 @@ import { useCallback, useMemo } from "react";
 import { SectionList } from "@/components/SectionList";
 import { LessonList } from "@/components/lesson-list";
 import { LessonView } from "@/components/lesson-view";
-import { StatsView } from "@/components/stats/StatsView";
 import { AdminView } from "@/components/AdminView";
 import { VocabView } from "@/components/vocab/VocabView";
 import { VocabStudyView } from "@/components/vocab/VocabStudyView";
@@ -20,6 +19,7 @@ import {
   FOCUS_VIEWS, HOME_VIEW, buildLessonSectionMap, getParentView, viewKey,
 } from "@/app/routes";
 import { cn } from "@/lib/utils";
+import { StatsView } from "./features/stats";
 
 export function MainApp() {
   const { view, navigate } = useViewNavigation(HOME_VIEW);
@@ -32,9 +32,11 @@ export function MainApp() {
   const isFocus = FOCUS_VIEWS.has(view.name);
 
   // Chỉ tính thời gian học khi đang ở bài học (giữ nguyên hành vi cũ)
-  const { state: study, todaySeconds, streak, streakDoneToday, counting, registerActivity } =
-  useStudyTracker(isLesson);
-
+  const { 
+    state: study, ready: studyReady, loadError: studyError, today,
+    todaySeconds, streak, streakDoneToday, counting, registerActivity 
+  } = useStudyTracker(isLesson);
+console.log( today)
   // ---- Lookup O(1) ----
   const sectionById = useMemo(() => new Map(sections.map((s) => [s.id, s])), [sections]);
   const lessonById = useMemo(
@@ -115,7 +117,15 @@ export function MainApp() {
       }
 
       case "stats":
-        return <StatsView study={study} decks={vocab.decks} onBack={goBack} />
+        return <StatsView
+          study={study} 
+          todayKey={today}
+          streakDoneToday={streakDoneToday}
+          ready={studyReady}
+          loadError={studyError}
+          decks={vocab.decks} 
+          onBack={goBack} 
+        />
 
       case "admin":
         return sectionsGate(
