@@ -21,4 +21,5 @@ export interface VocabAdminActions {
 export interface VocabAdminViewProps extends VocabAdminActions {
   decks: Deck[];
   onBack: () => void;
+  moveWords: (wordIds: number[], targetDeckId: number) => Promise<number>;
 }

@@ -266,6 +266,54 @@ export function useVocab() {
     []
   );
 
+  const MOVE_CHUNK = 200; // tránh URL quá dài khi .in() với nhiều id
+
+  // ---- MOVE: chuyển nhiều từ sang deck khác ----
+  const moveWords = useCallback(
+    async (wordIds: number[], targetDeckId: number): Promise<number> => {
+      const ids = [...new Set(wordIds)];
+      if (ids.length === 0) return 0;
+      const moved: number[] = [];
+      try {
+        for (let i = 0; i < ids.length; i += MOVE_CHUNK) {
+          const chunk = ids.slice(i, i + MOVE_CHUNK);
+          const { error } = await supabase
+            .from("words")
+            .update({ deck_id: targetDeckId })
+            .in("id", chunk);
+          if (error) throw error;
+          moved.push(...chunk);
+        }
+      } finally {
+        // Lỗi giữa chừng: các đợt trước đã vào DB, vẫn phải đồng bộ local
+        if (moved.length > 0) {
+          const idSet = new Set(moved);
+          setDecks((prev) => {
+            const movedWords: Word[] = [];
+            const stripped = prev.map((d) => {
+              if (!d.words.some((w) => idSet.has(w.id))) return d;
+              return {
+                ...d,
+                words: d.words.filter((w) => {
+                  if (!idSet.has(w.id)) return true;
+                  movedWords.push({ ...w, deck_id: targetDeckId });
+                  return false;
+                }),
+              };
+            });
+            return stripped.map((d) =>
+              d.id === targetDeckId
+                ? { ...d, words: [...d.words, ...movedWords].sort((a, b) => a.id - b.id) }
+                : d
+            );
+          });
+        }
+      }
+      return moved.length;
+    },
+    []
+  );
+
    return {
     decks,
     loading,
@@ -280,5 +328,6 @@ export function useVocab() {
     updateWord,
     deleteWord,
     addWordsBulk,
+    moveWords
   };
 }

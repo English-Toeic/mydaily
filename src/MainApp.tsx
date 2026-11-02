@@ -36,7 +36,7 @@ export function MainApp() {
     state: study, ready: studyReady, loadError: studyError, today,
     todaySeconds, streak, streakDoneToday, counting, registerActivity 
   } = useStudyTracker(isLesson);
-console.log( today)
+
   // ---- Lookup O(1) ----
   const sectionById = useMemo(() => new Map(sections.map((s) => [s.id, s])), [sections]);
   const lessonById = useMemo(
@@ -172,6 +172,7 @@ console.log( today)
               updateWord={vocab.updateWord}
               deleteWord={vocab.deleteWord}
               addWordsBulk={vocab.addWordsBulk}
+              moveWords={vocab.moveWords}
             />
           </DataGate>
         );

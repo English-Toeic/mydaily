@@ -11,6 +11,8 @@ interface WordListProps {
   showDeckName: boolean;
   editingId: number | null;
   emptyMessage: string;
+  selectedIds?: Set<number>;
+  onToggleSelect?: (id: number) => void;
   onEdit: (hit: WordHit) => void;
   onDelete: (word: Word) => void;
 }
@@ -21,6 +23,8 @@ export function WordList({
   showDeckName,
   editingId,
   emptyMessage,
+  selectedIds,
+  onToggleSelect,
   onEdit,
   onDelete,
 }: WordListProps) {
@@ -31,6 +35,17 @@ export function WordList({
   return (
     <div className="divide-y">
       {hits.map((hit) => (
+        <div className="flex items-center gap-2" key={hit.word.id}>
+        {onToggleSelect && (
+          <input
+            type="checkbox"
+            checked={selectedIds?.has(hit.word.id) ?? false}
+            onChange={() => onToggleSelect(hit.word.id)}
+            onClick={(e) => e.stopPropagation()} // nếu cả dòng bấm được để sửa
+            aria-label={`Chọn "${hit.word.english}"`}
+            className="size-4 shrink-0 cursor-pointer accent-primary"
+          />
+        )}
         <WordRow
           key={hit.word.id}
           hit={hit}
@@ -39,7 +54,8 @@ export function WordList({
           isEditing={editingId === hit.word.id}
           onEdit={onEdit}
           onDelete={onDelete}
-        />
+          />
+          </div>
       ))}
     </div>
   );

@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Word } from "@/types/vocab";
@@ -21,6 +21,9 @@ import { WordForm } from "./WordForm";
 import { BulkImportPanel } from "./BulkImportPanel";
 import { WordSearchBar } from "./WordSearchBar";
 import { WordList } from "./WordList";
+import { WordBulkBar } from "./WordBulkBar";
+import { useSelection } from "@/hooks/useSelection";
+import { planMove } from "@/lib/move-words";
 
 export function VocabAdminView({
   decks,
@@ -32,9 +35,11 @@ export function VocabAdminView({
   updateWord,
   deleteWord,
   addWordsBulk,
+  moveWords,
 }: VocabAdminViewProps) {
   const { pending, run } = useAsyncAction();
   const form = useWordForm();
+  const selection = useSelection(); 
 
   // ---- deck đang chọn (tự fallback về deck đầu tiên khi decks load xong) ----
   const [selectedDeckId, setSelectedDeckId] = useState<number | null>(null);
@@ -66,6 +71,41 @@ export function VocabAdminView({
     [decksInScope]
   );
 
+  const wordById = useMemo(() => {
+    const map = new Map<number, Word>();
+    for (const d of decks) for (const w of d.words) map.set(w.id, w);
+    return map;
+  }, [decks]);
+
+  const selectedWords = useMemo(
+    () =>
+      [...selection.ids].flatMap((id) => {
+        const w = wordById.get(id);
+        return w ? [w] : [];
+      }),
+    [selection.ids, wordById]
+  );
+  const sourceDeckIds = useMemo(
+    () => new Set(selectedWords.map((w) => w.deck_id)),
+    [selectedWords]
+  );
+  const visibleIds = useMemo(() => hits.map((h) => h.word.id), [hits]);
+  const visibleSelectedCount = useMemo(
+    () => visibleIds.filter((id) => selection.ids.has(id)).length,
+    [visibleIds, selection.ids]
+  );
+
+  const planFor = useCallback(
+    (targetId: number) => {
+      const target = decks.find((d) => d.id === targetId);
+      return target ? planMove(selectedWords, target) : null;
+    },
+    [decks, selectedWords]
+  );
+
+  const { clear: clearSelection } = selection;
+
+
   // Phím tắt: "/" hoặc Ctrl/Cmd + K để focus ô tìm kiếm
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -82,11 +122,13 @@ export function VocabAdminView({
         e.preventDefault();
         searchRef.current?.focus();
         searchRef.current?.select();
+        return;
       }
+      if (e.key === "Escape" && !typing) clearSelection();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [clearSelection]);
 
   // ======================= DECK HANDLERS =======================
 
@@ -95,6 +137,7 @@ export function VocabAdminView({
     setSelectedDeckId(id);
     form.reset();
     setBulkOpen(false);
+    if (scope === "deck") selection.clear();
   };
 
   const handleAddDeck = async (name: string, parentId: number | null) => {
@@ -176,6 +219,27 @@ export function VocabAdminView({
     return res.ok;
   };
 
+  const handleToggleAllVisible = () => {
+    const allSelected = visibleIds.length > 0 && visibleSelectedCount === visibleIds.length;
+    selection.setMany(visibleIds, !allSelected);
+  };
+
+  const handleMoveWords = async (targetId: number, skipDuplicates: boolean) => {
+    const plan = planFor(targetId);
+    if (!plan) return false;
+    const words = skipDuplicates ? plan.fresh : [...plan.fresh, ...plan.duplicates];
+    if (words.length === 0) return false;
+
+    const ids = words.map((w) => w.id);
+    const res = await run("move-words", () => moveWords(ids, targetId), "Lỗi chuyển từ");
+    if (res.ok) {
+      selection.clear();
+      // Form đang giữ bản Word có deck_id cũ, sửa tiếp sẽ làm lệch state local
+      if (form.editingWord && ids.includes(form.editingWord.id)) form.reset();
+    }
+    return res.ok;
+  };
+
   // ======================= RENDER =======================
 
   const isSearching = tokens.length > 0 || status !== "all";
@@ -245,12 +309,27 @@ export function VocabAdminView({
                 onStatusChange={setStatus}
               />
 
+              <WordBulkBar
+                decks={decks}
+                selectedCount={selectedWords.length}
+                visibleCount={visibleIds.length}
+                visibleSelectedCount={visibleSelectedCount}
+                sourceDeckIds={sourceDeckIds}
+                busy={pending === "move-words"}
+                planFor={planFor}
+                onToggleAllVisible={handleToggleAllVisible}
+                onClear={selection.clear}
+                onMove={handleMoveWords}
+              />
+
               <WordList
                 hits={hits}
                 tokens={tokens}
                 showDeckName={scope === "all"}
                 editingId={form.editingWord?.id ?? null}
                 emptyMessage={emptyMessage}
+                selectedIds={selection.ids}
+                onToggleSelect={selection.toggle}
                 onEdit={handleEditWord}
                 onDelete={(w) => void handleDeleteWord(w)}
               />
