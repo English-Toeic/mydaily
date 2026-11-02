@@ -1,0 +1,1 @@
+export { VocabStudyView } from "./VocabStudyView";

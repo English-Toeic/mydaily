@@ -1,7 +1,7 @@
 import { ArrowLeft, RotateCcw, Target, Trophy, Volume2, Flame, ListChecks } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Deck } from "@/types/vocab";
-import type { RestartKind, Session } from "./useStudySession";
+import type { RestartKind, Session } from "../../useStudySession";
 
 type Props = {
   deck: Deck;

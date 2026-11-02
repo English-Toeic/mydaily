@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Deck, StudyDirection, Word } from "@/types/vocab";
-import { gradeAnswer, hintTargetOf, letterCount, type Verdict } from "./answer";
+import { gradeAnswer, hintTargetOf, letterCount, type Verdict } from "./vocab-study-view/components/answer";
 
 export type StudyMode = StudyDirection | "mixed";
 export type Phase = "answering" | "checked";
