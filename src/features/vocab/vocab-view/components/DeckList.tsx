@@ -13,12 +13,14 @@ interface Props {
   query: string;
   /** `null` khi không tìm kiếm */
   results: Deck[] | null;
+  passageCounts: Map<number, number>;
   onToggle: (id: number) => void;
   onReveal: (id: number) => void;
   onStudy: (id: number) => void;
+  onOpenPassages: (deckId: number) => void;
 }
 
-export function DeckList({ tree, expanded, query, results, onToggle, onReveal, onStudy }: Props) {
+export function DeckList({ tree, expanded, query, results, passageCounts, onToggle, onReveal, onStudy, onOpenPassages }: Props) {
   return (
     <div className="overflow-hidden rounded-2xl border bg-card">
       <div className="flex items-center gap-2 border-b bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground sm:px-4">
@@ -43,6 +45,8 @@ export function DeckList({ tree, expanded, query, results, onToggle, onReveal, o
                   path={pathOf(tree, d.id) || undefined}
                   onSelect={() => onReveal(d.id)}
                   onStudy={() => onStudy(d.id)}
+                  onOpenPassages={() => onOpenPassages(d.id)}
+                  passageCount={passageCounts.get(d.id) ?? 0}
                 />
               </li>
             ))
@@ -55,6 +59,8 @@ export function DeckList({ tree, expanded, query, results, onToggle, onReveal, o
                 expanded={expanded}
                 onToggle={onToggle}
                 onStudy={onStudy}
+                onOpenPassages={onOpenPassages}
+                passageCounts={passageCounts}
               />
             ))}
       </ul>

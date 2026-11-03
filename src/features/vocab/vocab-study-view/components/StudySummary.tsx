@@ -1,4 +1,4 @@
-import { ArrowLeft, RotateCcw, Target, Trophy, Volume2, Flame, ListChecks } from "lucide-react";
+import { ArrowLeft, RotateCcw, Target, Trophy, Volume2, Flame, ListChecks, MessagesSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Deck } from "@/types/vocab";
 import type { RestartKind, Session } from "../../useStudySession";
@@ -9,9 +9,10 @@ type Props = {
   onRestart: (kind: RestartKind) => void;
   onBack: () => void;
   speak: (text: string) => void;
+  onOpenPassages?: () => void;
 };
 
-export function StudySummary({ deck, session, onRestart, onBack, speak }: Props) {
+export function StudySummary({ deck, session, onRestart, onBack, speak, onOpenPassages }: Props) {
   const { stats } = session;
   const missed = [...session.missed.values()];
   const total = deck.words.length;
@@ -33,6 +34,13 @@ export function StudySummary({ deck, session, onRestart, onBack, speak }: Props)
           “{deck.name}” · {learned}/{total} từ đã thuộc
         </p>
       </div>
+
+      {onOpenPassages && (
+  <Button variant="outline" onClick={onOpenPassages}>
+    <MessagesSquare className="size-4" />
+    Luyện hội thoại của deck này
+  </Button>
+)}
 
       {!nothingStudied && (
         <div className="grid grid-cols-3 gap-3">

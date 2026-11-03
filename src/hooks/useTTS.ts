@@ -1,5 +1,5 @@
 // src/hooks/useTTS.ts
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 // Danh sách giọng tự nhiên, ưu tiên từ trên xuống
 const PREFERRED_VOICES = [
@@ -14,9 +14,12 @@ const RESUME_WATCHDOG_MS = 400;
 
 export type TTSStatus = "idle" | "speaking" | "paused";
 
-interface SpeakOptions {
+export interface SpeakOptions {
   lang?: string;
   rate?: number; // 0.5 - 1.5
+  pitch?: number;   
+  voice?: SpeechSynthesisVoice | null;
+  onEnd?: () => void;
 }
 
 const hasTTS = () => typeof window !== "undefined" && "speechSynthesis" in window;
@@ -80,8 +83,12 @@ export function useTTS() {
     const u = new SpeechSynthesisUtterance(text.slice(offset));
     u.lang = opts.lang ?? "en-US";
     u.rate = opts.rate ?? 1;
-    u.pitch = 1;
-    if (voiceRef.current) u.voice = voiceRef.current;
+    u.pitch = opts.pitch ?? 1;
+    const voice = opts.voice ?? voiceRef.current;
+    if (voice) {
+      u.voice = voice;
+      if (opts.voice) u.lang = voice.lang;
+    }
 
     const isCurrent = () => utterRef.current === u;
     const finish = () => {
@@ -101,8 +108,17 @@ export function useTTS() {
     u.onboundary = (e) => {
       if (isCurrent() && e.name !== "sentence") charIndexRef.current = offset + e.charIndex;
     };
-    u.onend = finish;
-    u.onerror = finish;
+    
+    u.onend = () => {
+      if (!isCurrent()) return;
+      finish();
+      opts.onEnd?.();
+    };
+    u.onerror = (e) => {
+      if (!isCurrent()) return;
+      finish();
+      if (e.error !== "interrupted" && e.error !== "canceled") opts.onEnd?.();
+    };
 
     textRef.current = text;
     optsRef.current = opts;
@@ -171,7 +187,7 @@ export function useTTS() {
     if (v) voiceRef.current = v;
   }, [voices]);
 
-  const englishVoices = voices.filter((v) => v.lang.startsWith("en"));
+  const englishVoices = useMemo(() => voices.filter((v) => v.lang.startsWith("en")), [voices]);
 
   return {
     speak, stop, pause, resume, togglePause,

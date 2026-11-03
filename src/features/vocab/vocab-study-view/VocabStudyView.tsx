@@ -20,11 +20,12 @@ interface Props {
   deck: Deck;
   onBack: () => void;
   onGrade: (word: Word, correct: boolean) => Promise<Word>;
+  onOpenPassages?: () => void;
 }
 
 const noop = () => {};
 
-export function VocabStudyView({ deck, onBack, onGrade }: Props) {
+export function VocabStudyView({ deck, onBack, onGrade, onOpenPassages }: Props) {
   const { speak, speaking } = useTTS();
   const s = useStudySession({ deck, onGrade, speak });
   const practice = usePracticeFlow(s);
@@ -58,6 +59,7 @@ export function VocabStudyView({ deck, onBack, onGrade }: Props) {
         onRestart={practice.restart}
         onBack={onBack}
         speak={speak}
+        onOpenPassages={onOpenPassages}
       />
     );
   }

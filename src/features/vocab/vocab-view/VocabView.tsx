@@ -14,13 +14,16 @@ interface Props {
   decks: Deck[];
   loading: boolean;
   error: string | null;
+  passageCounts: Map<number, number>;
   onBack: () => void;
   onRefetch: () => void;
   onStudy: (deckId: number) => void;
   onAdmin: () => void;
+  onOpenPassages: (deckId: number) => void;
+
 }
 
-export function VocabView({ decks, loading, error, onBack, onRefetch, onStudy, onAdmin }: Props) {
+export function VocabView({ decks, loading, error, passageCounts, onBack, onRefetch, onStudy, onAdmin, onOpenPassages }: Props) {
   const tree = useMemo(() => buildDeckTree(decks), [decks]);
   const { expanded, allOpen, toggle, toggleAll, expandMany } = useExpanded(tree.parentIds);
   const [query, setQuery] = useState("");
@@ -68,9 +71,11 @@ export function VocabView({ decks, loading, error, onBack, onRefetch, onStudy, o
             expanded={expanded}
             query={query}
             results={results}
+            passageCounts={passageCounts}
             onToggle={toggle}
             onReveal={reveal}
             onStudy={onStudy}
+            onOpenPassages={onOpenPassages}
           />
         </div>
       )}

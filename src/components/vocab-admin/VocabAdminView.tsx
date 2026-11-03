@@ -24,6 +24,11 @@ import { WordList } from "./WordList";
 import { WordBulkBar } from "./WordBulkBar";
 import { useSelection } from "@/hooks/useSelection";
 import { planMove } from "@/lib/move-words";
+import type { Passage, PassageFields, PassageKind } from "@/types/passage";
+import { PassageAdmin } from "./PassageAdmin";
+import { cn } from "@/lib/utils";
+
+type AdminTab = "words" | PassageKind;
 
 export function VocabAdminView({
   decks,
@@ -36,6 +41,10 @@ export function VocabAdminView({
   deleteWord,
   addWordsBulk,
   moveWords,
+  passages, 
+  addPassage, 
+  updatePassage, 
+  deletePassage
 }: VocabAdminViewProps) {
   const { pending, run } = useAsyncAction();
   const form = useWordForm();
@@ -49,6 +58,7 @@ export function VocabAdminView({
   );
 
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [adminTab, setAdminTab] = useState<AdminTab>("words");
 
   // ---- tìm kiếm ----
   const searchRef = useRef<HTMLInputElement>(null);
@@ -93,6 +103,11 @@ export function VocabAdminView({
   const visibleSelectedCount = useMemo(
     () => visibleIds.filter((id) => selection.ids.has(id)).length,
     [visibleIds, selection.ids]
+  );
+
+  const deckPassages = useMemo(
+    () => (selectedDeck ? passages.filter((p) => p.deck_id === selectedDeck.id) : []),
+    [passages, selectedDeck]
   );
 
   const planFor = useCallback(
@@ -240,6 +255,22 @@ export function VocabAdminView({
     return res.ok;
   };
 
+  const handleSavePassage = async (fields: PassageFields, editing: Passage | null) => {
+    if (!selectedDeck) return false;
+    const deckId = selectedDeck.id;
+    const res = await run(
+      "save-passage",
+      () => (editing ? updatePassage(editing.id, fields) : addPassage(deckId, fields)),
+      "Lỗi lưu bài"
+    );
+    return res.ok;
+  };
+
+  const handleDeletePassage = async (p: Passage) => {
+    if (!confirm(`Xóa "${p.title}"?`)) return;
+    await run("delete-passage", () => deletePassage(p.id), "Lỗi xóa bài");
+  };
+
   // ======================= RENDER =======================
 
   const isSearching = tokens.length > 0 || status !== "all";
@@ -285,6 +316,40 @@ export function VocabAdminView({
                   Nhập hàng loạt
                 </Button>
               </div>
+
+              <div className="mb-4 flex gap-1 rounded-lg bg-muted p-1">
+                {([
+                  ["words", `Từ vựng (${selectedDeck.words.length})`],
+                  ["dialogue", `Hội thoại (${deckPassages.filter((p) => p.kind === "dialogue").length})`],
+                  ["speech", `Bài nói (${deckPassages.filter((p) => p.kind === "speech").length})`],
+                ] as const).map(([id, text]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setAdminTab(id)}
+                    className={cn(
+                      "flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition",
+                      adminTab === id ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {text}
+                  </button>
+                ))}
+              </div>
+
+              {adminTab === "words" ? (
+                <>
+                  {/* WordForm, BulkImportPanel, WordSearchBar, WordBulkBar, WordList như cũ */}
+                </>
+              ) : (
+                <PassageAdmin
+                  key={`${selectedDeck.id}-${adminTab}`}  // đổi deck/tab thì đóng form đang sửa
+                  kind={adminTab}
+                  passages={deckPassages}
+                  onSave={handleSavePassage}
+                  onDelete={handleDeletePassage}
+                />
+              )}
 
               <WordForm form={form} saving={pending === "save-word"} onSubmit={() => void handleSaveWord()} />
 

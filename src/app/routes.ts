@@ -1,4 +1,5 @@
 import type { Section } from "@/types"; // chỉnh lại path theo project của bạn
+import type { PassageKind, PassageMode } from "@/types/passage";
 
 export type View =
   | { name: "sections" }
@@ -8,7 +9,10 @@ export type View =
   | { name: "vocabStudy"; deckId: number }
   | { name: "vocabAdmin" }
   | { name: "stats" }
-  | { name: "admin" };
+  | { name: "admin" }
+  | { name: "passages"; deckId: number; kind: PassageKind }
+  | { name: "passagePractice"; deckId: number; kind: PassageKind; passageId: number; mode: PassageMode };
+
 
 export type ViewName = View["name"];
 
@@ -25,13 +29,22 @@ export function viewKey(view: View): string {
       return `lesson:${view.lessonId}`;
     case "vocabStudy":
       return `vocabStudy:${view.deckId}`;
+    case "passages":
+      return `passages-${view.deckId}`;
+    case "passagePractice":
+      return `passage-${view.passageId}`;
     default:
       return view.name;
   }
 }
 
 export function isSameView(a: View, b: View) {
-  return viewKey(a) === viewKey(b);
+  if (viewKey(a) !== viewKey(b)) return false;
+  // Cùng bài nhưng khác tab vẫn tính là view khác
+  if (a.name === "passagePractice" && b.name === "passagePractice") {
+    return a.mode === b.mode;
+  }
+  return true;
 }
 
 export function isView(value: unknown): value is View {
@@ -55,6 +68,10 @@ export function getParentView(view: View, lessonSectionMap: Map<number, number>)
     case "vocabStudy":
     case "vocabAdmin":
       return { name: "vocab" };
+    case "passages":
+      return { name: "vocab" };
+    case "passagePractice":
+      return { name: "passages", deckId: view.deckId, kind: view.kind };
     default:
       return HOME_VIEW;
   }

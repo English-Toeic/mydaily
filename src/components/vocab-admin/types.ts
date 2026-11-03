@@ -1,4 +1,5 @@
 import type { BulkRow } from "@/lib/bulk-import";
+import type { Passage, PassageFields } from "@/types/passage";
 import type { Deck, Sentence, Word, WordFields } from "@/types/vocab";
 
 export interface VocabAdminActions {
@@ -16,6 +17,10 @@ export interface VocabAdminActions {
   updateWord: (word: Word, fields: WordFields) => Promise<void>;
   deleteWord: (word: Word) => Promise<void>;
   addWordsBulk: (deck_id: number, rows: BulkRow[]) => Promise<unknown>;
+  passages: Passage[];
+  addPassage: (deckId: number, fields: PassageFields) => Promise<Passage>;
+  updatePassage: (id: number, fields: Partial<PassageFields>) => Promise<void>;
+  deletePassage: (id: number) => Promise<void>;
 }
 
 export interface VocabAdminViewProps extends VocabAdminActions {

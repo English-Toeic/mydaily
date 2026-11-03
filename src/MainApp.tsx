@@ -20,6 +20,12 @@ import {
 } from "@/app/routes";
 import { cn } from "@/lib/utils";
 import { StatsView } from "./features/stats";
+import { usePassages } from "./hooks/usePassages";
+import type { Passage, PassageKind } from "./types/passage";
+import { PassagePracticeView } from "./features/passages/PassagePracticeView";
+import { PassageListView } from "./features/passages/PassageListView";
+
+const NO_PASSAGES: Passage[] = [];
 
 export function MainApp() {
   const { view, navigate } = useViewNavigation(HOME_VIEW);
@@ -27,8 +33,9 @@ export function MainApp() {
   const { sections, loading, error, refetch } = useSections();
   const { getLesson, markSentenceLearned, openLesson, resetLesson } = useProgress();
   const vocab = useVocab();
+  const passageStore = usePassages();
 
-  const isLesson = view.name === "lesson" || view.name === "vocabStudy";
+  const isLesson = view.name === "lesson" || view.name === "vocabStudy" || view.name === "passagePractice";
   const isFocus = FOCUS_VIEWS.has(view.name);
 
   // Chỉ tính thời gian học khi đang ở bài học (giữ nguyên hành vi cũ)
@@ -46,14 +53,52 @@ export function MainApp() {
   const lessonSectionMap = useMemo(() => buildLessonSectionMap(sections), [sections]);
   const lessonCount = lessonById.size;
 
+  const passagesByDeck = useMemo(() => {
+    const map = new Map<number, Passage[]>();
+    for (const p of passageStore.passages) {
+      const list = map.get(p.deck_id) ?? [];
+      list.push(p);
+      map.set(p.deck_id, list);
+    }
+    return map;
+  }, [passageStore.passages]);
+
+  const passageCounts = useMemo(
+    () => new Map([...passagesByDeck].map(([id, list]) => [id, list.length])),
+    [passagesByDeck]
+  );
+
   const goBack = useCallback(
     () => navigate(getParentView(view, lessonSectionMap)),
     [navigate, view, lessonSectionMap]
   );
   const goHome = useCallback(() => navigate(HOME_VIEW), [navigate]);
 
+  const openPassages = useCallback(
+    (deckId: number) => {
+      const list = passagesByDeck.get(deckId) ?? NO_PASSAGES;
+      console.log("openPassages: ", deckId, list, passagesByDeck);
+      const kind: PassageKind = list.some((p) => p.kind === "dialogue") || !list.length ? "dialogue" : "speech";
+      navigate({ name: "passages", deckId, kind });
+    },
+    [navigate, passagesByDeck]
+  );
+
   const sectionsGate = (children: React.ReactNode) => (
     <DataGate loading={loading} error={error} onRetry={refetch}>
+      {children}
+    </DataGate>
+  );
+
+  const vocabPassageGate = (children: React.ReactNode) => (
+    <DataGate
+      loading={vocab.loading || passageStore.loading}
+      error={vocab.error ?? passageStore.error}
+      onRetry={() => {
+        vocab.refetch();
+        passageStore.refetch();
+      }}
+    >
       {children}
     </DataGate>
   );
@@ -143,15 +188,20 @@ export function MainApp() {
             onRefetch={vocab.refetch}
             onStudy={(deckId) => navigate({ name: "vocabStudy", deckId })}
             onAdmin={() => navigate({ name: "vocabAdmin" })}
+            passageCounts={passageCounts}
+            onOpenPassages={openPassages}
           />
         );
 
       case "vocabStudy": {
         const deck = vocab.decks.find((d) => d.id === view.deckId);
+        const hasPassages = deck ? (passageCounts.get(deck.id) ?? 0) > 0 : false;
         return (
           <DataGate loading={vocab.loading} error={vocab.error} onRetry={vocab.refetch}>
             {deck ? (
-              <VocabStudyView deck={deck} onGrade={vocab.gradeWord} onBack={goBack} />
+              <VocabStudyView deck={deck} onGrade={vocab.gradeWord} onBack={goBack}
+                onOpenPassages={hasPassages ? () => openPassages(deck.id) : undefined}
+              />
             ) : (
               <NotFoundState message="Không tìm thấy bộ từ vựng này." onBack={goBack} />
             )}
@@ -159,22 +209,70 @@ export function MainApp() {
         );
       }
 
-      case "vocabAdmin":
-        return (
-          <DataGate loading={vocab.loading} error={vocab.error} onRetry={vocab.refetch}>
-            <VocabAdminView
-              decks={vocab.decks}
+      case "passages": {
+        const deck = vocab.decks.find((d) => d.id === view.deckId);
+        return vocabPassageGate(
+          deck ? (
+            <PassageListView
+              deck={deck}
+              passages={passagesByDeck.get(deck.id) ?? NO_PASSAGES}
+              initialKind={view.kind}
               onBack={goBack}
-              addDeck={vocab.addDeck}
-              updateDeck={vocab.updateDeck}
-              deleteDeck={vocab.deleteDeck}
-              addWord={vocab.addWord}
-              updateWord={vocab.updateWord}
-              deleteWord={vocab.deleteWord}
-              addWordsBulk={vocab.addWordsBulk}
-              moveWords={vocab.moveWords}
+              onStudyWords={() => navigate({ name: "vocabStudy", deckId: deck.id })}
+              onOpen={(p, mode) =>
+                navigate({
+                  name: "passagePractice",
+                  deckId: deck.id,
+                  kind: p.kind,
+                  passageId: p.id,
+                  mode,
+                })
+              }
             />
-          </DataGate>
+          ) : (
+            <NotFoundState message="Không tìm thấy bộ từ vựng này." onBack={goBack} />
+          )
+        );
+      }
+
+      case "passagePractice": {
+        const deck = vocab.decks.find((d) => d.id === view.deckId);
+        const passage = passageStore.passages.find((p) => p.id === view.passageId);
+        return vocabPassageGate(
+          deck && passage ? (
+            <PassagePracticeView
+              passage={passage}
+              words={deck.words}
+              mode={view.mode}
+              onModeChange={(mode) => navigate({ ...view, mode })}
+              onRecord={(score) => void passageStore.recordResult(passage, score)}
+              onBack={goBack}
+              onActivity={registerActivity}
+            />
+          ) : (
+            <NotFoundState message="Không tìm thấy bài này." onBack={goBack} />
+          )
+        );
+      }
+
+      case "vocabAdmin":
+        return vocabPassageGate(
+          <VocabAdminView
+            decks={vocab.decks}
+            onBack={goBack}
+            addDeck={vocab.addDeck}
+            updateDeck={vocab.updateDeck}
+            deleteDeck={vocab.deleteDeck}
+            addWord={vocab.addWord}
+            updateWord={vocab.updateWord}
+            deleteWord={vocab.deleteWord}
+            addWordsBulk={vocab.addWordsBulk}
+            moveWords={vocab.moveWords}
+            passages={passageStore.passages}
+            addPassage={passageStore.addPassage}
+            updatePassage={passageStore.updatePassage}
+            deletePassage={passageStore.deletePassage}
+          />
         );
 
       default: {

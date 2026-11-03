@@ -9,11 +9,13 @@ interface Props {
   depth: number;
   tree: DeckTree;
   expanded: Set<number>;
+  passageCounts: Map<number, number>;
   onToggle: (id: number) => void;
   onStudy: (id: number) => void;
+  onOpenPassages: (deckId: number) => void;
 }
 
-export function DeckTreeNode({ deck, depth, tree, expanded, onToggle, onStudy }: Props) {
+export function DeckTreeNode({ deck, depth, tree, expanded, passageCounts, onToggle, onStudy, onOpenPassages }: Props) {
   const kids = tree.children.get(deck.id) ?? [];
   const hasKids = kids.length > 0;
   const isOpen = expanded.has(deck.id);
@@ -28,6 +30,8 @@ export function DeckTreeNode({ deck, depth, tree, expanded, onToggle, onStudy }:
         isOpen={hasKids ? isOpen : undefined}
         onSelect={hasKids ? () => onToggle(deck.id) : undefined}
         onStudy={() => onStudy(deck.id)}
+        onOpenPassages={() => onOpenPassages(deck.id)}
+        passageCount={passageCounts.get(deck.id) ?? 0}
       />
       {hasKids && isOpen && (
         <ul className="divide-y border-t">
@@ -40,6 +44,8 @@ export function DeckTreeNode({ deck, depth, tree, expanded, onToggle, onStudy }:
               expanded={expanded}
               onToggle={onToggle}
               onStudy={onStudy}
+              onOpenPassages={onOpenPassages}
+              passageCounts={passageCounts}
             />
           ))}
         </ul>
