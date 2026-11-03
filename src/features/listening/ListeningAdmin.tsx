@@ -95,7 +95,13 @@ export function ListeningAdmin({ store }: { store: ListeningStore }) {
     const target = editing;
     const res = await run(
       "save-q",
-      () => (target ? store.updateQuestion(target.id, fields) : store.addQuestion(setId, fields)),
+      async () => {
+        if (target) {
+            await store.updateQuestion(target.id, fields);
+        } else {
+            await store.addQuestion(setId, fields);
+        }
+        },
       "Lỗi lưu câu hỏi"
     );
     if (res.ok) resetForm();

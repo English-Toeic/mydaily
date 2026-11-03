@@ -262,7 +262,13 @@ export function VocabAdminView({
     const deckId = selectedDeck.id;
     const res = await run(
       "save-passage",
-      () => (editing ? updatePassage(editing.id, fields) : addPassage(deckId, fields)),
+      async () => {
+        if (editing) {
+          await updatePassage(editing.id, fields);
+        } else {
+          await addPassage(deckId, fields);
+        }
+      },
       "Lỗi lưu bài"
     );
     return res.ok;
