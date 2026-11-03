@@ -27,11 +27,14 @@ import { planMove } from "@/lib/move-words";
 import type { Passage, PassageFields, PassageKind } from "@/types/passage";
 import { PassageAdmin } from "./PassageAdmin";
 import { cn } from "@/lib/utils";
+import { ListeningAdmin } from "@/features/listening/ListeningAdmin";
 
 type AdminTab = "words" | PassageKind;
 
 export function VocabAdminView({
   decks,
+  listening,
+  passages, 
   onBack,
   addDeck,
   updateDeck,
@@ -41,10 +44,9 @@ export function VocabAdminView({
   deleteWord,
   addWordsBulk,
   moveWords,
-  passages, 
   addPassage, 
   updatePassage, 
-  deletePassage
+  deletePassage,
 }: VocabAdminViewProps) {
   const { pending, run } = useAsyncAction();
   const form = useWordForm();
@@ -56,7 +58,7 @@ export function VocabAdminView({
     () => decks.find((d) => d.id === selectedDeckId) ?? decks[0] ?? null,
     [decks, selectedDeckId]
   );
-
+  const [area, setArea] = useState<"vocab" | "listening">("vocab");
   const [bulkOpen, setBulkOpen] = useState(false);
   const [adminTab, setAdminTab] = useState<AdminTab>("words");
 
@@ -284,137 +286,160 @@ export function VocabAdminView({
         <Button variant="ghost" size="icon" onClick={onBack} aria-label="Quay lại">
           <ArrowLeft className="h-5 w-5" />
         </Button>
-        <h1 className="text-lg font-semibold">Quản lý từ vựng</h1>
+        <h1 className="text-lg font-semibold">Quản lý</h1>
       </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-[260px_1fr] gap-4">
-        <DeckSidebar
-          decks={decks}
-          selectedId={selectedDeck?.id ?? null}
-          busy={pending === "add-deck" || pending === "rename-deck"}
-          onSelect={handleSelectDeck}
-          onAdd={handleAddDeck}
-          onRename={handleRenameDeck}
-        />
-
-        <main className="border rounded-xl p-4 min-w-0">
-          {!selectedDeck ? (
-            <div className="text-center text-muted-foreground py-20 text-sm">
-              Chọn hoặc tạo một deck để bắt đầu
-            </div>
-          ) : (
-            <>
-              <div className="flex items-center justify-between mb-4 gap-2">
-                <h2 className="font-semibold truncate">
-                  {selectedDeck.name}
-                  <span className="text-muted-foreground font-normal">
-                    {" "}· {selectedDeck.words.length} từ
-                  </span>
-                </h2>
-                <Button size="sm" variant="outline" onClick={() => setBulkOpen((v) => !v)}>
-                  <Upload className="h-4 w-4 mr-1" />
-                  Nhập hàng loạt
-                </Button>
-              </div>
-
-              <div className="mb-4 flex gap-1 rounded-lg bg-muted p-1">
-                {([
-                  ["words", `Từ vựng (${selectedDeck.words.length})`],
-                  ["dialogue", `Hội thoại (${deckPassages.filter((p) => p.kind === "dialogue").length})`],
-                  ["speech", `Bài nói (${deckPassages.filter((p) => p.kind === "speech").length})`],
-                ] as const).map(([id, text]) => (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => setAdminTab(id)}
-                    className={cn(
-                      "flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition",
-                      adminTab === id ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    {text}
-                  </button>
-                ))}
-              </div>
-
-              {adminTab === "words" ? (
-                <>
-                  {/* WordForm, BulkImportPanel, WordSearchBar, WordBulkBar, WordList như cũ */}
-                </>
-              ) : (
-                <PassageAdmin
-                  key={`${selectedDeck.id}-${adminTab}`}  // đổi deck/tab thì đóng form đang sửa
-                  kind={adminTab}
-                  passages={deckPassages}
-                  onSave={handleSavePassage}
-                  onDelete={handleDeletePassage}
-                />
-              )}
-
-              <WordForm form={form} saving={pending === "save-word"} onSubmit={() => void handleSaveWord()} />
-
-              {bulkOpen && (
-                <BulkImportPanel
-                  existingWords={selectedDeck.words}
-                  busy={pending === "bulk"}
-                  onImport={handleBulkImport}
-                  onClose={() => setBulkOpen(false)}
-                />
-              )}
-
-              <WordSearchBar
-                inputRef={searchRef}
-                query={query}
-                scope={scope}
-                status={status}
-                shown={hits.length}
-                total={totalInScope}
-                onQueryChange={setQuery}
-                onScopeChange={setScope}
-                onStatusChange={setStatus}
-              />
-
-              <WordBulkBar
-                decks={decks}
-                selectedCount={selectedWords.length}
-                visibleCount={visibleIds.length}
-                visibleSelectedCount={visibleSelectedCount}
-                sourceDeckIds={sourceDeckIds}
-                busy={pending === "move-words"}
-                planFor={planFor}
-                onToggleAllVisible={handleToggleAllVisible}
-                onClear={selection.clear}
-                onMove={handleMoveWords}
-              />
-
-              <WordList
-                hits={hits}
-                tokens={tokens}
-                showDeckName={scope === "all"}
-                editingId={form.editingWord?.id ?? null}
-                emptyMessage={emptyMessage}
-                selectedIds={selection.ids}
-                onToggleSelect={selection.toggle}
-                onEdit={handleEditWord}
-                onDelete={(w) => void handleDeleteWord(w)}
-              />
-
-              <div className="pt-4 mt-4 border-t">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="text-destructive hover:text-destructive"
-                  disabled={pending === "delete-deck"}
-                  onClick={() => void handleDeleteDeck()}
-                >
-                  <Trash2 className="h-4 w-4 mr-1" />
-                  Xóa deck này
-                </Button>
-              </div>
-            </>
-          )}
-        </main>
+      <div className="mb-4 flex gap-1 rounded-lg bg-muted p-1">
+        {([
+          ["vocab", "Từ vựng & bài"],
+          ["listening", `Nghe (${listening.sets.length})`],
+        ] as const).map(([id, text]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setArea(id)}
+            className={cn(
+              "flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition",
+              area === id ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {text}
+          </button>
+        ))}
       </div>
+
+      {area === "listening" ? (
+        <ListeningAdmin store={listening} />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-[260px_1fr] gap-4">
+          <DeckSidebar
+            decks={decks}
+            selectedId={selectedDeck?.id ?? null}
+            busy={pending === "add-deck" || pending === "rename-deck"}
+            onSelect={handleSelectDeck}
+            onAdd={handleAddDeck}
+            onRename={handleRenameDeck}
+          />
+
+          <main className="border rounded-xl p-4 min-w-0">
+            {!selectedDeck ? (
+              <div className="text-center text-muted-foreground py-20 text-sm">
+                Chọn hoặc tạo một deck để bắt đầu
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center justify-between mb-4 gap-2">
+                  <h2 className="font-semibold truncate">
+                    {selectedDeck.name}
+                    <span className="text-muted-foreground font-normal">
+                      {" "}· {selectedDeck.words.length} từ
+                    </span>
+                  </h2>
+                  <Button size="sm" variant="outline" onClick={() => setBulkOpen((v) => !v)}>
+                    <Upload className="h-4 w-4 mr-1" />
+                    Nhập hàng loạt
+                  </Button>
+                </div>
+
+                <div className="mb-4 flex gap-1 rounded-lg bg-muted p-1">
+                  {([
+                    ["words", `Từ vựng (${selectedDeck.words.length})`],
+                    ["dialogue", `Hội thoại (${deckPassages.filter((p) => p.kind === "dialogue").length})`],
+                    ["speech", `Bài nói (${deckPassages.filter((p) => p.kind === "speech").length})`],
+                  ] as const).map(([id, text]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setAdminTab(id)}
+                      className={cn(
+                        "flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition",
+                        adminTab === id ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      {text}
+                    </button>
+                  ))}
+                </div>
+
+                {adminTab === "words" ? (
+                  <>
+                    {/* WordForm, BulkImportPanel, WordSearchBar, WordBulkBar, WordList như cũ */}
+                  </>
+                ) : (
+                  <PassageAdmin
+                    key={`${selectedDeck.id}-${adminTab}`}  // đổi deck/tab thì đóng form đang sửa
+                    kind={adminTab}
+                    passages={deckPassages}
+                    onSave={handleSavePassage}
+                    onDelete={handleDeletePassage}
+                  />
+                )}
+
+                <WordForm form={form} saving={pending === "save-word"} onSubmit={() => void handleSaveWord()} />
+
+                {bulkOpen && (
+                  <BulkImportPanel
+                    existingWords={selectedDeck.words}
+                    busy={pending === "bulk"}
+                    onImport={handleBulkImport}
+                    onClose={() => setBulkOpen(false)}
+                  />
+                )}
+
+                <WordSearchBar
+                  inputRef={searchRef}
+                  query={query}
+                  scope={scope}
+                  status={status}
+                  shown={hits.length}
+                  total={totalInScope}
+                  onQueryChange={setQuery}
+                  onScopeChange={setScope}
+                  onStatusChange={setStatus}
+                />
+
+                <WordBulkBar
+                  decks={decks}
+                  selectedCount={selectedWords.length}
+                  visibleCount={visibleIds.length}
+                  visibleSelectedCount={visibleSelectedCount}
+                  sourceDeckIds={sourceDeckIds}
+                  busy={pending === "move-words"}
+                  planFor={planFor}
+                  onToggleAllVisible={handleToggleAllVisible}
+                  onClear={selection.clear}
+                  onMove={handleMoveWords}
+                />
+
+                <WordList
+                  hits={hits}
+                  tokens={tokens}
+                  showDeckName={scope === "all"}
+                  editingId={form.editingWord?.id ?? null}
+                  emptyMessage={emptyMessage}
+                  selectedIds={selection.ids}
+                  onToggleSelect={selection.toggle}
+                  onEdit={handleEditWord}
+                  onDelete={(w) => void handleDeleteWord(w)}
+                />
+
+                <div className="pt-4 mt-4 border-t">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-destructive hover:text-destructive"
+                    disabled={pending === "delete-deck"}
+                    onClick={() => void handleDeleteDeck()}
+                  >
+                    <Trash2 className="h-4 w-4 mr-1" />
+                    Xóa deck này
+                  </Button>
+                </div>
+              </>
+            )}
+          </main>
+        </div>
+      )}
     </div>
   );
 }

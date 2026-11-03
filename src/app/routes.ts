@@ -11,7 +11,9 @@ export type View =
   | { name: "stats" }
   | { name: "admin" }
   | { name: "passages"; deckId: number; kind: PassageKind }
-  | { name: "passagePractice"; deckId: number; kind: PassageKind; passageId: number; mode: PassageMode };
+  | { name: "passagePractice"; deckId: number; kind: PassageKind; passageId: number; mode: PassageMode }
+  | { name: "listening" }
+  | { name: "listeningPractice"; setId: number };
 
 
 export type ViewName = View["name"];
@@ -19,7 +21,7 @@ export type ViewName = View["name"];
 export const HOME_VIEW: View = { name: "sections" };
 
 /** Các view "tập trung": ẩn header và bottom nav */
-export const FOCUS_VIEWS: ReadonlySet<ViewName> = new Set(["lesson", "vocabStudy"]);
+export const FOCUS_VIEWS: ReadonlySet<ViewName> = new Set(["lesson", "vocabStudy", "listeningPractice"]);
 
 export function viewKey(view: View): string {
   switch (view.name) {
@@ -33,6 +35,8 @@ export function viewKey(view: View): string {
       return `passages-${view.deckId}`;
     case "passagePractice":
       return `passage-${view.passageId}`;
+    case "listeningPractice":
+      return `listeningPractice:${view.setId}`;
     default:
       return view.name;
   }
@@ -72,6 +76,8 @@ export function getParentView(view: View, lessonSectionMap: Map<number, number>)
       return { name: "vocab" };
     case "passagePractice":
       return { name: "passages", deckId: view.deckId, kind: view.kind };
+    case "listeningPractice":
+      return { name: "listening" };
     default:
       return HOME_VIEW;
   }

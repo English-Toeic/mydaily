@@ -1,3 +1,4 @@
+import type { ListeningStore } from "@/hooks/useListening";
 import type { BulkRow } from "@/lib/bulk-import";
 import type { Passage, PassageFields } from "@/types/passage";
 import type { Deck, Sentence, Word, WordFields } from "@/types/vocab";
@@ -27,4 +28,5 @@ export interface VocabAdminViewProps extends VocabAdminActions {
   decks: Deck[];
   onBack: () => void;
   moveWords: (wordIds: number[], targetDeckId: number) => Promise<number>;
+  listening: ListeningStore;
 }

@@ -24,8 +24,13 @@ import { usePassages } from "./hooks/usePassages";
 import type { Passage, PassageKind } from "./types/passage";
 import { PassagePracticeView } from "./features/passages/PassagePracticeView";
 import { PassageListView } from "./features/passages/PassageListView";
+import { useListening } from "./hooks/useListening";
+import type { ListeningQuestion } from "./types/listening";
+import { ListeningListView } from "./features/listening/ListeningListView";
+import { ListeningPracticeView } from "./features/listening/ListeningPracticeView";
 
 const NO_PASSAGES: Passage[] = [];
+const NO_QUESTIONS: ListeningQuestion[] = [];
 
 export function MainApp() {
   const { view, navigate } = useViewNavigation(HOME_VIEW);
@@ -34,8 +39,13 @@ export function MainApp() {
   const { getLesson, markSentenceLearned, openLesson, resetLesson } = useProgress();
   const vocab = useVocab();
   const passageStore = usePassages();
+  const listeningStore = useListening();
 
-  const isLesson = view.name === "lesson" || view.name === "vocabStudy" || view.name === "passagePractice";
+  const isLesson =
+    view.name === "lesson" || 
+    view.name === "vocabStudy" || 
+    view.name === "passagePractice" ||
+    view.name === "listeningPractice";
   const isFocus = FOCUS_VIEWS.has(view.name);
 
   // Chỉ tính thời gian học khi đang ở bài học (giữ nguyên hành vi cũ)
@@ -99,6 +109,23 @@ export function MainApp() {
         passageStore.refetch();
       }}
     >
+      {children}
+    </DataGate>
+  );
+
+  const questionsBySet = useMemo(() => {
+    const map = new Map<number, ListeningQuestion[]>();
+    for (const q of listeningStore.questions) {
+      const list = map.get(q.set_id) ?? [];
+      list.push(q);
+      map.set(q.set_id, list);
+    }
+    return map;
+  }, [listeningStore.questions]);
+
+  // Dùng đúng props DataGate như sectionsGate của bạn
+  const listeningGate = (children: React.ReactNode) => (
+    <DataGate loading={listeningStore.loading} error={listeningStore.error} onRetry={listeningStore.refetch}>
       {children}
     </DataGate>
   );
@@ -255,6 +282,34 @@ export function MainApp() {
         );
       }
 
+      case "listening":
+        return listeningGate(
+          <ListeningListView
+            sets={listeningStore.sets}
+            questionsBySet={questionsBySet}
+            onOpen={(setId) => navigate({ name: "listeningPractice", setId })}
+          />
+        );
+
+      case "listeningPractice": {
+        const set = listeningStore.sets.find((s) => s.id === view.setId);
+        return listeningGate(
+          set ? (
+            <ListeningPracticeView
+              key={set.id}
+              set={set}
+              questions={questionsBySet.get(set.id) ?? NO_QUESTIONS}
+              onBack={goBack}
+              onStart={() => void listeningStore.touchSet(set.id)}
+              onAnswer={(q) => void listeningStore.markLearned(q.id)}
+              onActivity={registerActivity}
+            />
+          ) : (
+            <></>
+          )
+        );
+      }
+
       case "vocabAdmin":
         return vocabPassageGate(
           <VocabAdminView
@@ -272,6 +327,7 @@ export function MainApp() {
             addPassage={passageStore.addPassage}
             updatePassage={passageStore.updatePassage}
             deletePassage={passageStore.deletePassage}
+            listening={listeningStore}
           />
         );
 

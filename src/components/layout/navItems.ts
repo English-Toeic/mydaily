@@ -1,4 +1,4 @@
-import { BarChart3, BookMarked, BookOpen, Settings, type LucideIcon } from "lucide-react";
+import { BarChart3, BookMarked, BookOpen, Headphones, Settings, type LucideIcon } from "lucide-react";
 import type { View, ViewName } from "@/app/routes";
 
 export type NavItem = {
@@ -14,4 +14,10 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { label: "Từ vựng", icon: BookMarked, target: { name: "vocab" }, activeOn: ["vocab", "vocabStudy", "vocabAdmin"] },
   { label: "Thống kê", icon: BarChart3, target: { name: "stats" }, activeOn: ["stats"] },
   { label: "Quản lý", icon: Settings, target: { name: "admin" }, activeOn: ["admin"] },
+  {
+    label: "Nghe",
+    icon: Headphones,
+    target: { name: "listening" },
+    activeOn: ["listening", "listeningPractice"],
+  },
 ];
