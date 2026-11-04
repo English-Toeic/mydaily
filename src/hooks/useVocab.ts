@@ -2,46 +2,82 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import type { Deck, Sentence, Word, WordFields, WordStatus } from "@/types/vocab";
+import { enqueue, listOps, syncOutbox, withOutboxLock, type OutboxItem } from "@/lib/offline/outbox";
+import { readCache, usePersistedCache } from "@/lib/offline/cache";
 
 const LEARNED_THRESHOLD = 3; // đúng 3 lần liên tiếp → learned
+const CACHE_KEY = "decks";
 
 type DeckRow = Omit<Deck, "words">;
 
 function getErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
+  if (err && typeof err === "object" && "message" in err && typeof err.message === "string") return err.message;
   if (typeof err === "string") return err;
   return "Lỗi không xác định";
 }
+
+function applyPending(decks: Deck[], items: OutboxItem[]): Deck[] {
+  const grades = new Map<number, { status: WordStatus; correct_count: number }>();
+  for (const { op } of items) if (op.type === "word.grade") grades.set(op.wordId, op);
+  if (!grades.size) return decks;
+  return decks.map((d) => ({
+    ...d,
+    words: d.words.map((w) => {
+      const g = grades.get(w.id);
+      return g ? { ...w, status: g.status, correct_count: g.correct_count } : w;
+    }),
+  }));
+}
+
 
 export function useVocab() {
   const [decks, setDecks] = useState<Deck[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [hydrated, setHydrated] = useState(false); 
+
+  usePersistedCache(CACHE_KEY, decks, hydrated);
 
   const fetchAll = useCallback(async () => {
-    setLoading(true);
     setError(null);
+
+    const [cached, queued] = await Promise.all([readCache<Deck[]>(CACHE_KEY), listOps()]);
+    if (cached) {
+      setDecks(applyPending(cached, queued));
+      setHydrated(true);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+
     try {
-      const [{ data: deckRows, error: e1 }, { data: wordRows, error: e2 }] =
-        await Promise.all([
+      if (!navigator.onLine) throw new Error("Đang offline và chưa có dữ liệu lưu sẵn.");
+      await syncOutbox();
+      
+      const { deckRows, wordRows, pending } = await withOutboxLock(async () => {
+        const [d, w] = await Promise.all([
           supabase.from("decks").select("*").order("id"),
           supabase.from("words").select("*").order("id"),
         ]);
-      if (e1) throw e1;
-      if (e2) throw e2;
+        if (d.error) throw d.error;
+        if (w.error) throw w.error;
+        return { deckRows: d.data ?? [], wordRows: w.data ?? [], pending: await listOps() };
+      });
 
-      const words = (wordRows ?? []).map((w) => ({
+      const words = wordRows.map((w) => ({
         ...w,
         sentences: Array.isArray(w.sentences) ? w.sentences : [],
       })) as Word[];
-
-      const decksData: Deck[] = (deckRows ?? []).map((d) => ({
+      const decksData: Deck[] = (deckRows as DeckRow[]).map((d) => ({
         ...d,
         words: words.filter((w) => w.deck_id === d.id),
       }));
-      setDecks(decksData);
+
+      setDecks(applyPending(decksData, pending));
+      setHydrated(true);
     } catch (err: unknown) {
-      setError(getErrorMessage(err));
+      if (!cached) setError(getErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -72,11 +108,7 @@ export function useVocab() {
         )
       );
 
-      const { error } = await supabase
-        .from("words")
-        .update({ status, correct_count })
-        .eq("id", word.id);
-      if (error) console.error(error);
+      await enqueue({ type: "word.grade", wordId: word.id, status, correct_count });
 
       return { ...word, status, correct_count };
     },

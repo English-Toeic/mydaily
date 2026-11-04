@@ -2,6 +2,46 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import type { KindSeconds, StudyKind, StudyState } from "@/types";
 import { STREAK_MIN_SECONDS } from "@/lib/study";
+import { enqueue, listOps, syncOutbox, withOutboxLock, type OutboxItem } from "@/lib/offline/outbox";
+import { readCache, writeCache } from "@/lib/offline/cache";
+
+const STUDY_CACHE = "study";
+type Snapshot = { daily: Record<string, number>; byKind: Record<string, KindSeconds> };
+const EMPTY: Snapshot = { daily: {}, byKind: {} };
+
+type DailyRow = {
+  day: string; seconds: number;
+  lesson_seconds: number | null; vocab_seconds: number | null; listening_seconds: number | null;
+};
+
+const toSnapshot = (rows: DailyRow[]): Snapshot => {
+  const s: Snapshot = { daily: {}, byKind: {} };
+  for (const r of rows) {
+    s.daily[r.day] = r.seconds;
+    s.byKind[r.day] = {
+      lesson: r.lesson_seconds ?? 0,
+      vocab: r.vocab_seconds ?? 0,
+      listening: r.listening_seconds ?? 0,
+    };
+  }
+  return s;
+};
+
+/** Cộng các giây còn nằm trong outbox (chưa lên server) */
+function withPending(snap: Snapshot, items: OutboxItem[]): Snapshot {
+  const daily = { ...snap.daily };
+  const byKind = { ...snap.byKind };
+  for (const { op } of items) {
+    if (op.type !== "study.add") continue;
+    daily[op.day] = (daily[op.day] ?? 0) + op.seconds;
+    byKind[op.day] = { ...byKind[op.day], [op.kind]: (byKind[op.day]?.[op.kind] ?? 0) + op.seconds };
+  }
+  return { daily, byKind };
+}
+
+const errMsg = (e: unknown) =>
+  e && typeof e === "object" && "message" in e && typeof e.message === "string"
+    ? e.message : "Không tải được dữ liệu";
 
 /** Không thao tác quá thời gian này thì dừng đếm */
 export const IDLE_MS = 5_000;
@@ -58,54 +98,59 @@ export function useStudyTracker(activeKind: StudyKind | null) {
   const lastTickRef = useRef(0);
   const carryMsRef = useRef(0); // phần lẻ < 1s chưa cộng
   const pendingRef = useRef<Record<string, number>>({}); // giây chưa lưu, theo ngày
-  const flushingRef = useRef(false);
 
   // ---- Load ban đầu ----
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const { data, error } = await supabase
-        .from("study_daily")
-        .select("day, seconds, lesson_seconds, vocab_seconds, listening_seconds")
-        .order("day", { ascending: false })
-        .limit(1000);
-      if (cancelled) return;
-      if (error) setLoadError(error.message);
+  let cancelled = false;
+  (async () => {
+    let server = await readCache<Snapshot>(STUDY_CACHE);
+    let pending: OutboxItem[] = [];
 
-      const fromDb: Record<string, number> = {};
-      const kindsDb: Record<string, KindSeconds> = {};
-      (data ?? []).forEach((r) => {
-        fromDb[r.day] = r.seconds;
-        kindsDb[r.day] = {
-          lesson: r.lesson_seconds ?? 0,
-          vocab: r.vocab_seconds ?? 0,
-          listening: r.listening_seconds ?? 0,
-        };
+    try {
+      if (!navigator.onLine) throw new Error("Đang offline");
+      await syncOutbox();
+      const res = await withOutboxLock(async () => {
+        const { data, error } = await supabase
+          .from("study_daily")
+          .select("day, seconds, lesson_seconds, vocab_seconds, listening_seconds")
+          .order("day", { ascending: false })
+          .limit(1000);
+        if (error) throw error;
+        return { rows: (data ?? []) as DailyRow[], pending: await listOps() };
       });
+      server = toSnapshot(res.rows);
+      pending = res.pending;
+      void writeCache(STUDY_CACHE, server);
+    } catch (e) {
+      pending = await listOps();
+      if (!server && navigator.onLine) setLoadError(errMsg(e));
+    }
+    if (cancelled) return;
 
-      setDaily((local) => {
-        const merged = { ...fromDb };
-        for (const [k, v] of Object.entries(local)) merged[k] = (merged[k] ?? 0) + v;
-        return merged;
-      });
-      setByKind((local) => {
-        const merged = { ...kindsDb };
-        for (const [day, parts] of Object.entries(local)) {
-          const m = { ...merged[day] };
-          for (const [kind, v] of Object.entries(parts) as [StudyKind, number][]) {
-            m[kind] = (m[kind] ?? 0) + v;
-          }
-          merged[day] = m;
+    const base = withPending(server ?? EMPTY, pending);
+
+    // Cộng phần đã đếm trong RAM trước khi load xong (giữ logic cũ)
+    setDaily((local) => {
+      const merged = { ...base.daily };
+      for (const [k, v] of Object.entries(local)) merged[k] = (merged[k] ?? 0) + v;
+      return merged;
+    });
+    setByKind((local) => {
+      const merged = { ...base.byKind };
+      for (const [day, parts] of Object.entries(local)) {
+        const m = { ...merged[day] };
+        for (const [kind, v] of Object.entries(parts) as [StudyKind, number][]) {
+          m[kind] = (m[kind] ?? 0) + v;
         }
-        return merged;
-      });
-      readyRef.current = true;
-      setReady(true);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+        merged[day] = m;
+      }
+      return merged;
+    });
+    readyRef.current = true;
+    setReady(true);
+  })();
+  return () => { cancelled = true; };
+}, []);
 
   const registerActivity = useCallback(() => {
     lastActionRef.current = Date.now();
@@ -113,32 +158,21 @@ export function useStudyTracker(activeKind: StudyKind | null) {
 
   // ---- Flush: gửi phần cộng thêm (delta), an toàn với nhiều tab/thiết bị ----
   const flush = useCallback(async () => {
-    if (!readyRef.current || flushingRef.current) return;
-    const entries = Object.entries(pendingRef.current).filter(([, s]) => s > 0);
-    if (!entries.length) return;
+  if (!readyRef.current) return;
+  const entries = Object.entries(pendingRef.current).filter(([, s]) => s > 0);
+  if (!entries.length) return;
+  pendingRef.current = {};
 
-    pendingRef.current = {};
-    flushingRef.current = true;
+  for (const [key, seconds] of entries) {
+    const [day, kind] = key.split("|") as [string, StudyKind];
     try {
-      const results = await Promise.all(
-        entries.map(([key, seconds]) => {
-          const [day, kind] = key.split("|");
-          return supabase.rpc("add_study_seconds", {
-            p_day: day,
-            p_seconds: seconds,
-            p_kind: kind || null,
-          });
-        })
-      );
-      results.forEach(({ error }, i) => {
-        if (!error) return;
-        const [key, s] = entries[i];
-        pendingRef.current[key] = (pendingRef.current[key] ?? 0) + s;
-      });
-    } finally {
-      flushingRef.current = false;
+      await enqueue({ type: "study.add", day, kind, seconds });
+    } catch (e) {
+      console.error(e);
+      pendingRef.current[key] = (pendingRef.current[key] ?? 0) + seconds; // giữ lại thử sau
     }
-  }, []);
+  }
+}, []);
 
   // ---- Theo dõi thao tác + đếm thời gian khi đang học ----
   useEffect(() => {

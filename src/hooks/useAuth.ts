@@ -1,6 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
-import type { User } from "@supabase/supabase-js";
+import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
+import { clearCache } from "@/lib/offline/cache";
+
+const LAST_USER_KEY = "mydaily:last-user";
+
+const readLastUser = (): User | null => {
+  try {
+    return JSON.parse(localStorage.getItem(LAST_USER_KEY) ?? "null");
+  } catch {
+    return null;
+  }
+};
 
 function translateError(msg: string): string {
   if (/invalid login credentials/i.test(msg)) return "Sai email hoặc mật khẩu";
@@ -16,20 +27,44 @@ export function useAuth() {
   useEffect(() => {
     let mounted = true;
 
-    supabase.auth.getSession().then(({ data }) => {
+    const apply = (session: Session | null) => {
       if (!mounted) return;
-      setRawUser(data.session?.user ?? null);
+      if (session?.user) {
+        localStorage.setItem(LAST_USER_KEY, JSON.stringify(session.user));
+        setRawUser(session.user);
+      } else if (!navigator.onLine) {
+        setRawUser(readLastUser()); // offline + token hết hạn → vẫn cho học
+      } else {
+        setRawUser(null);
+      }
       setLoading(false);
+    };
+
+    supabase.auth.getSession()
+      .then(({ data }) => apply(data.session))
+      .catch(() => apply(null));
+
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_OUT") {
+        localStorage.removeItem(LAST_USER_KEY);
+        if (mounted) { setRawUser(null); setLoading(false); }
+        return;
+      }
+      apply(session);
     });
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      setRawUser(session?.user ?? null);
-      setLoading(false);
-    });
+    // Có mạng lại → lấy session thật (tự refresh token)
+    const onOnline = () => {
+      setTimeout(() => {
+        supabase.auth.getSession().then(({ data }) => apply(data.session));
+      }, 0);
+    };
+    window.addEventListener("online", onOnline);
 
     return () => {
       mounted = false;
       sub.subscription.unsubscribe();
+      window.removeEventListener("online", onOnline);
     };
   }, []);
 
@@ -46,6 +81,8 @@ export function useAuth() {
 
   const logout = useCallback(async () => {
     await supabase.auth.signOut();
+    localStorage.removeItem(LAST_USER_KEY);
+    await clearCache();
   }, []);
 
   return { user, loading, login, logout };

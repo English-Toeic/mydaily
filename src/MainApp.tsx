@@ -29,6 +29,7 @@ import type { ListeningQuestion } from "./types/listening";
 import { ListeningListView } from "./features/listening/ListeningListView";
 import { ListeningPracticeView } from "./features/listening/ListeningPracticeView";
 import type { StudyKind } from "./types";
+import { SyncBanner } from "./components/feedback/SyncBanner";
 
 const NO_PASSAGES: Passage[] = [];
 const NO_QUESTIONS: ListeningQuestion[] = [];
@@ -362,6 +363,7 @@ export function MainApp() {
           counting={counting}
           onNavigate={navigate}
         />
+        <SyncBanner />
 
       <main
         className={cn(
