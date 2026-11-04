@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import type { StudyState } from "@/types";
+import type { KindSeconds, StudyKind, StudyState } from "@/types";
 import { STREAK_MIN_SECONDS } from "@/lib/study";
 
 /** Không thao tác quá thời gian này thì dừng đếm */
@@ -44,8 +44,10 @@ export function computeStreak(daily: Record<string, number>, today: string) {
 }
 
 /* ---------- Hook ---------- */
-export function useStudyTracker(active: boolean) {
+export function useStudyTracker(activeKind: StudyKind | null) {
+  const active = activeKind !== null;
   const [daily, setDaily] = useState<Record<string, number>>({});
+  const [byKind, setByKind] = useState<Record<string, KindSeconds>>({});
   const [ready, setReady] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [idle, setIdle] = useState(true);
@@ -64,19 +66,37 @@ export function useStudyTracker(active: boolean) {
     (async () => {
       const { data, error } = await supabase
         .from("study_daily")
-        .select("day, seconds")
+        .select("day, seconds, lesson_seconds, vocab_seconds, listening_seconds")
         .order("day", { ascending: false })
         .limit(1000);
       if (cancelled) return;
       if (error) setLoadError(error.message);
 
       const fromDb: Record<string, number> = {};
-      (data ?? []).forEach((r) => (fromDb[r.day] = r.seconds));
+      const kindsDb: Record<string, KindSeconds> = {};
+      (data ?? []).forEach((r) => {
+        fromDb[r.day] = r.seconds;
+        kindsDb[r.day] = {
+          lesson: r.lesson_seconds ?? 0,
+          vocab: r.vocab_seconds ?? 0,
+          listening: r.listening_seconds ?? 0,
+        };
+      });
 
-      // Cộng phần đã đếm trong lúc chờ load (chưa flush vì flush đợi ready)
       setDaily((local) => {
         const merged = { ...fromDb };
         for (const [k, v] of Object.entries(local)) merged[k] = (merged[k] ?? 0) + v;
+        return merged;
+      });
+      setByKind((local) => {
+        const merged = { ...kindsDb };
+        for (const [day, parts] of Object.entries(local)) {
+          const m = { ...merged[day] };
+          for (const [kind, v] of Object.entries(parts) as [StudyKind, number][]) {
+            m[kind] = (m[kind] ?? 0) + v;
+          }
+          merged[day] = m;
+        }
         return merged;
       });
       readyRef.current = true;
@@ -101,15 +121,19 @@ export function useStudyTracker(active: boolean) {
     flushingRef.current = true;
     try {
       const results = await Promise.all(
-        entries.map(([day, seconds]) =>
-          supabase.rpc("add_study_seconds", { p_day: day, p_seconds: seconds })
-        )
+        entries.map(([key, seconds]) => {
+          const [day, kind] = key.split("|");
+          return supabase.rpc("add_study_seconds", {
+            p_day: day,
+            p_seconds: seconds,
+            p_kind: kind || null,
+          });
+        })
       );
-      // Lỗi (mất mạng, hết phiên…) thì trả lại hàng đợi để lần sau gửi tiếp
       results.forEach(({ error }, i) => {
         if (!error) return;
-        const [day, s] = entries[i];
-        pendingRef.current[day] = (pendingRef.current[day] ?? 0) + s;
+        const [key, s] = entries[i];
+        pendingRef.current[key] = (pendingRef.current[key] ?? 0) + s;
       });
     } finally {
       flushingRef.current = false;
@@ -118,7 +142,8 @@ export function useStudyTracker(active: boolean) {
 
   // ---- Theo dõi thao tác + đếm thời gian khi đang học ----
   useEffect(() => {
-    if (!active) return;
+     const kind = activeKind;
+    if (!kind) return;
 
     const start = Date.now();
     lastActionRef.current = start; // vào bài là bắt đầu tính
@@ -152,8 +177,13 @@ export function useStudyTracker(active: boolean) {
 
       const day = dayKey();
       setToday(day);
-      pendingRef.current[day] = (pendingRef.current[day] ?? 0) + secs;
+      const key = `${day}|${kind}`;
+      pendingRef.current[key] = (pendingRef.current[key] ?? 0) + secs;
       setDaily((prev) => ({ ...prev, [day]: (prev[day] ?? 0) + secs }));
+      setByKind((prev) => ({
+        ...prev,
+        [day]: { ...prev[day], [kind]: (prev[day]?.[kind] ?? 0) + secs },
+      }));
     };
 
     // Quay lại tab/cửa sổ: không tính khoảng thời gian đã rời đi
@@ -171,7 +201,7 @@ export function useStudyTracker(active: boolean) {
       window.removeEventListener("focus", resetTick);
       document.removeEventListener("visibilitychange", resetTick);
     };
-  }, [active]);
+  }, [activeKind]);
 
   // ---- Flush định kỳ, khi ẩn tab và khi rời trang ----
   useEffect(() => {
@@ -199,8 +229,8 @@ export function useStudyTracker(active: boolean) {
   );
 
   const state: StudyState = useMemo(
-    () => ({ daily, streak, lastStudyDate }),
-    [daily, streak, lastStudyDate]
+    () => ({ daily, byKind, streak, lastStudyDate }),
+    [daily, byKind, streak, lastStudyDate]
   );
 
   return {

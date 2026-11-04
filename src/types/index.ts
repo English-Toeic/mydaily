@@ -47,13 +47,18 @@ export interface ProgressState {
 }
 
 // ---- Study tracker ----
+export type StudyKind = "lesson" | "vocab" | "listening";
+export const STUDY_KINDS: StudyKind[] = ["lesson", "vocab", "listening"];
+export type KindSeconds = Partial<Record<StudyKind, number>>;
+
 export interface DailyStudy {
-  date: string;       // YYYY-MM-DD
-  seconds: number;    // giờ học có thao tác
+  date: string;
+  seconds: number;
 }
 
 export interface StudyState {
-  daily: Record<string, number>; // date -> seconds
+  daily: Record<string, number>;          // date -> tổng giây
+  byKind: Record<string, KindSeconds>;    // date -> giây theo từng phần
   streak: number;
-  lastStudyDate?: string;         // YYYY-MM-DD
+  lastStudyDate?: string;
 }

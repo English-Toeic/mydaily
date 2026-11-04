@@ -65,7 +65,7 @@ export function StatsView({ study, todayKey, streakDoneToday, ready, loadError, 
             summary={summary}
           />
 
-          <ActivityChart daily={daily} today={today} goalSec={goalSec} />
+          <ActivityChart daily={daily} today={today} goalSec={goalSec} byKind={study.byKind} />
           <ActivityHeatmap daily={daily} today={today} goalSec={goalSec} />
 
           <div className={cn("grid gap-4", hasDecks && "sm:grid-cols-2")}>

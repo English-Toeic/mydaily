@@ -1,6 +1,6 @@
 import { WEEKDAY_SHORT, addDays, fmtDM, formatDayLong, startOfWeek } from "@/lib/date";
 import { STREAK_MIN_SECONDS } from "@/lib/study";
-import { elapsedInWeek, sumDays, type Bar, type ChartRange, type Daily } from "./aggregate";
+import { elapsedInWeek, emptyParts, PART_KEYS, sumDays, type Bar, type ChartRange, type Daily } from "./aggregate";
 import { fmtShort } from "./format";
 
 export const RANGES: { value: ChartRange; label: string; prevLabel: string }[] = [
@@ -40,17 +40,20 @@ export function summarizeBars(bars: Bar[], goalSec: number) {
   let activeDays = 0;
   let reached = 0;
   let maxSeconds = 0;
+  const parts = emptyParts();
   for (const b of bars) {
     total += b.seconds;
     activeDays += b.activeDays;
     if (b.seconds >= targetOf(b, goalSec)) reached++;
     if (b.seconds > maxSeconds) maxSeconds = b.seconds;
+    for (const k of PART_KEYS) parts[k] += b.parts[k];
   }
   return {
     total,
     activeDays,
     reached,
     maxSeconds,
+    parts,
     avgPerActive: activeDays ? total / activeDays : 0,
     avgPerBar: bars.length ? total / bars.length : 0,
   };

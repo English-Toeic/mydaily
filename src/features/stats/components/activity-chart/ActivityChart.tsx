@@ -3,7 +3,7 @@ import { useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from "
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { STREAK_MIN_SECONDS } from "@/lib/study";
-import { chartBars, type ChartRange, type Daily } from "../../lib/aggregate";
+import { chartBars, type ByKind, type ChartRange, type Daily } from "../../lib/aggregate";
 import {
   barStatus, barTitle, deltaPct, niceScale, previousTotal,
   rangeInfo, summarizeBars, targetOf, tickLabel,
@@ -13,14 +13,16 @@ import { useChartRange } from "../../hooks/useChartRange";
 import { RangeTabs } from "./RangeTabs";
 import { ChartDelta } from "./ChartDelta";
 import { BarTooltip } from "./BarTooltip";
+import { SEGMENTS } from "../../lib/segments";
 
 interface Props {
   daily: Daily;
+  byKind?: ByKind;
   today: Date;
   goalSec: number;
 }
 
-export function ActivityChart({ daily, today, goalSec }: Props) {
+export function ActivityChart({ daily, byKind = {}, today, goalSec }: Props) {
   const [range, setRange] = useChartRange();
   const [selected, setSelected] = useState<number | null>(null);
   const barRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -29,7 +31,7 @@ export function ActivityChart({ daily, today, goalSec }: Props) {
   const weekly = range === "12w";
   const info = rangeInfo(range);
 
-  const bars = useMemo(() => chartBars(daily, today, range), [daily, today, range]);
+  const bars = useMemo(() => chartBars(daily, today, range, byKind), [daily, today, range, byKind]);
   const prevTotal = useMemo(() => previousTotal(daily, today, range), [daily, today, range]);
   const sum = useMemo(() => summarizeBars(bars, goalSec), [bars, goalSec]);
 
@@ -107,6 +109,17 @@ export function ActivityChart({ daily, today, goalSec }: Props) {
         <RangeTabs value={range} onChange={changeRange} />
       </div>
 
+      {/* Chú thích màu */}
+      <ul className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+        {SEGMENTS.filter((s) => s.key !== "other" || sum.parts.other > 0).map((s) => (
+          <li key={s.key} className="flex items-center gap-1.5">
+            <span className={cn("size-2.5 rounded-sm", s.bar)} />
+            <span className="text-muted-foreground">{s.label}</span>
+            <span className="font-medium tabular-nums">{fmtShort(sum.parts[s.key])}</span>
+          </li>
+        ))}
+      </ul>
+
       {/* Vùng vẽ */}
       <div className="relative mt-5 pl-9">
         {/* Trục Y */}
@@ -170,11 +183,14 @@ export function ActivityChart({ daily, today, goalSec }: Props) {
           {/* Cột */}
           <div className={cn("absolute inset-0 flex items-end", gap)} onClick={onBackgroundClick}>
             {bars.map((b, i) => {
-              const ok = b.seconds >= targetOf(b, goalSec);
+              const ok = b.seconds > 0 && b.seconds >= targetOf(b, goalSec);
               const weak = !weekly && b.seconds > 0 && b.seconds < STREAK_MIN_SECONDS;
               const isSel = selected === i;
               const dim = selected !== null && !isSel;
               const status = barStatus(b, goalSec, weekly);
+              const breakdown = SEGMENTS.filter((s) => b.parts[s.key] > 0)
+                .map((s) => `${s.label} ${fmtShort(b.parts[s.key])}`)
+                .join(", ");
 
               return (
                 <button
@@ -185,7 +201,7 @@ export function ActivityChart({ daily, today, goalSec }: Props) {
                   type="button"
                   tabIndex={i === focusIndex ? 0 : -1}
                   aria-pressed={isSel}
-                  aria-label={`${barTitle(b, weekly)}: ${fmtShort(b.seconds)}. ${status.text}`}
+                  aria-label={`${barTitle(b, weekly)}: ${fmtShort(b.seconds)}${breakdown ? ` (${breakdown})` : ""}. ${status.text}`}
                   onPointerDown={(e) => {
                     pointerType.current = e.pointerType;
                   }}
@@ -195,23 +211,37 @@ export function ActivityChart({ daily, today, goalSec }: Props) {
                   className="flex h-full flex-1 items-end rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <div
-                    className={cn(
-                      "w-full rounded-t-lg motion-safe:transition-all motion-safe:duration-500",
-                      weak
-                        ? "border border-dashed border-primary/60 bg-primary/10"
-                        : ok
-                          ? "bg-emerald-500"
-                          : b.current
-                            ? "bg-primary"
-                            : "bg-primary/45",
-                      dim && "opacity-40",
-                      isSel && "brightness-110"
-                    )}
+                    className="relative w-full"
                     style={{
                       height: `${y(b.seconds)}%`,
-                      minHeight: weak ? 6 : b.seconds > 0 ? 3 : 0,
+                      minHeight: b.seconds > 0 ? 3 : 0,
                     }}
-                  />
+                  >
+                    {/* Đạt mục tiêu: chấm xanh trên đỉnh cột */}
+                    {ok && (
+                      <span className="absolute -top-2.5 left-1/2 size-1.5 -translate-x-1/2 rounded-full bg-emerald-500" />
+                    )}
+
+                    {/* Cột chồng: flex-col-reverse để phần đầu tiên nằm dưới đáy */}
+                    <div
+                      className={cn(
+                        "flex h-full w-full flex-col-reverse overflow-hidden rounded-t-[3px] transition-opacity",
+                        dim && "opacity-40",
+                        weak && !dim && "opacity-60"
+                      )}
+                    >
+                      {SEGMENTS.map(
+                        (s) =>
+                          b.parts[s.key] > 0 && (
+                            <div
+                              key={s.key}
+                              className={s.bar}
+                              style={{ height: `${(b.parts[s.key] / b.seconds) * 100}%` }}
+                            />
+                          )
+                      )}
+                    </div>
+                  </div>
                 </button>
               );
             })}
@@ -225,6 +255,7 @@ export function ActivityChart({ daily, today, goalSec }: Props) {
               heightPct={y(active.seconds)}
               title={barTitle(active, weekly)}
               seconds={active.seconds}
+              parts={active.parts}
               status={barStatus(active, goalSec, weekly)}
             />
           )}

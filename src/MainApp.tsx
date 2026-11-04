@@ -28,6 +28,7 @@ import { useListening } from "./hooks/useListening";
 import type { ListeningQuestion } from "./types/listening";
 import { ListeningListView } from "./features/listening/ListeningListView";
 import { ListeningPracticeView } from "./features/listening/ListeningPracticeView";
+import type { StudyKind } from "./types";
 
 const NO_PASSAGES: Passage[] = [];
 const NO_QUESTIONS: ListeningQuestion[] = [];
@@ -41,18 +42,24 @@ export function MainApp() {
   const passageStore = usePassages();
   const listeningStore = useListening();
 
-  const isLesson =
-    view.name === "lesson" || 
-    view.name === "vocabStudy" || 
-    view.name === "passagePractice" ||
-    view.name === "listeningPractice";
+  // const isLesson =
+  //   view.name === "lesson" || 
+  //   view.name === "vocabStudy" || 
+  //   view.name === "passagePractice" ||
+  //   view.name === "listeningPractice";
   const isFocus = FOCUS_VIEWS.has(view.name);
+
+  const studyKind: StudyKind | null =
+  view.name === "lesson" ? "lesson"
+  : view.name === "vocabStudy" || view.name === "passagePractice" ? "vocab"
+  : view.name === "listeningPractice" ? "listening"
+  : null;
 
   // Chỉ tính thời gian học khi đang ở bài học (giữ nguyên hành vi cũ)
   const { 
     state: study, ready: studyReady, loadError: studyError, today,
     todaySeconds, streak, streakDoneToday, counting, registerActivity 
-  } = useStudyTracker(isLesson);
+  } = useStudyTracker(studyKind);
 
   // ---- Lookup O(1) ----
   const sectionById = useMemo(() => new Map(sections.map((s) => [s.id, s])), [sections]);
@@ -87,7 +94,6 @@ export function MainApp() {
   const openPassages = useCallback(
     (deckId: number) => {
       const list = passagesByDeck.get(deckId) ?? NO_PASSAGES;
-      console.log("openPassages: ", deckId, list, passagesByDeck);
       const kind: PassageKind = list.some((p) => p.kind === "dialogue") || !list.length ? "dialogue" : "speech";
       navigate({ name: "passages", deckId, kind });
     },
@@ -305,7 +311,7 @@ export function MainApp() {
               onActivity={registerActivity}
             />
           ) : (
-            <></>
+            <NotFoundState message="Không tìm thấy bộ đề nghe này." onBack={goBack} />
           )
         );
       }
