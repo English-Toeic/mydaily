@@ -17,6 +17,7 @@ interface Props {
   speak: (text: string) => void;
   speaking: boolean;
   autoSpeak: boolean;
+  onAccept?: (word: Word, key: string, text: string) => Promise<Word>;
   onDone: () => void;
 }
 
@@ -25,11 +26,12 @@ export function SentencePractice(props: Props) {
   return <PracticeSession key={props.word.id} {...props} />;
 }
 
-function PracticeSession({ word, speak, speaking, autoSpeak, onDone }: Props) {
+function PracticeSession({ word, speak, speaking, autoSpeak, onAccept, onDone }: Props) {
   const { state, sentences, total, current, canCheck, actions } = usePracticeSession({
     word,
     speak,
     autoSpeak,
+    onAccept
   });
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const checked = state.phase === "checked";

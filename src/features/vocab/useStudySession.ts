@@ -52,10 +52,11 @@ function readMode(): StudyMode {
 type Options = {
   deck: Deck;
   onGrade: (word: Word, correct: boolean) => Promise<Word>;
+  onAccept?: (word: Word, key: string, text: string) => Promise<Word>;
   speak: (text: string) => void;
 };
 
-export function useStudySession({ deck, onGrade, speak }: Options) {
+export function useStudySession({ deck, onGrade, onAccept, speak }: Options) {
   const [mode, setModeState] = useState<StudyMode>(readMode);
   const [autoSpeak, setAutoSpeak] = useState(() => localStorage.getItem(AUTO_SPEAK_KEY) !== "0");
   const [session, setSession] = useState(() => createSession(unlearned(deck.words), mode));
@@ -75,12 +76,14 @@ export function useStudySession({ deck, onGrade, speak }: Options) {
   const card = session.queue[0] ?? null;
   const answer = card ? (card.dir === "vi-en" ? card.word.english : card.word.meaning) : "";
   const answerLang = card?.dir === "vi-en" ? "en" : "vi";
+  const acceptKey = answerLang;
   const hintTarget = hintTargetOf(answer);
   const maxHints = letterCount(hintTarget);
   const checked = phase === "checked";
   const passed = checked && verdict !== "wrong" && hints === 0;
   // Việt → Anh: nghe trước khi trả lời là lộ đáp án
   const canListen = !!card && (card.dir === "en-vi" || checked);
+  
 
   const speakRef = useRef(speak);
   useEffect(() => {
@@ -118,7 +121,7 @@ export function useStudySession({ deck, onGrade, speak }: Options) {
 
   const check = () => {
     if (!card || checked || grading || !input.trim()) return;
-    const r = gradeAnswer(input, answer, answerLang);
+    const r = gradeAnswer(input, answer, answerLang, card.word.accepted?.[acceptKey]);
     reveal(r.verdict, r.note);
   };
 
@@ -132,11 +135,22 @@ export function useStudySession({ deck, onGrade, speak }: Options) {
 
   /** Người học tự xác nhận mình đúng (đồng nghĩa, cách viết khác…) */
   const override = () => {
-    if (checked && verdict === "wrong" && input.trim()) {
-      setVerdict("correct");
-      setOverridden(true);
-      setNote(undefined);
-    }
+    if (!(checked && verdict === "wrong" && input.trim())) return;
+    setVerdict("correct");
+    setOverridden(true);
+    setNote(undefined);
+
+    if (!card || !onAccept) return;
+    void onAccept(card.word, acceptKey, input).then((w) => {
+      // Cập nhật mọi thẻ của từ này trong phiên (kể cả thẻ đã bị chèn lại sau khi bấm Tiếp)
+      setSession((s) => ({
+        ...s,
+        queue: s.queue.map((c) => (c.word.id === w.id ? { ...c, word: { ...c.word, accepted: w.accepted } } : c)),
+        missed: s.missed.has(w.id)
+          ? new Map(s.missed).set(w.id, { ...s.missed.get(w.id)!, accepted: w.accepted })
+          : s.missed,
+      }));
+    }).catch(console.error);
   };
 
   const next = async () => {

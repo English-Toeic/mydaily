@@ -233,7 +233,7 @@ export function MainApp() {
         return (
           <DataGate loading={vocab.loading} error={vocab.error} onRetry={vocab.refetch}>
             {deck ? (
-              <VocabStudyView deck={deck} onGrade={vocab.gradeWord} onBack={goBack}
+              <VocabStudyView deck={deck} onGrade={vocab.gradeWord} onBack={goBack} onAccept={vocab.acceptAnswer}
                 onOpenPassages={hasPassages ? () => openPassages(deck.id) : undefined}
               />
             ) : (

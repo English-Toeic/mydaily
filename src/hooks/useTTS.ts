@@ -12,6 +12,10 @@ const PREFERRED_VOICES = [
 
 const RESUME_WATCHDOG_MS = 400;
 
+const NETWORK_ERRORS = new Set(["network", "synthesis-failed", "synthesis-unavailable"]);
+
+const isEnglish = (v: SpeechSynthesisVoice) => v.lang.toLowerCase().startsWith("en");
+
 export type TTSStatus = "idle" | "speaking" | "paused";
 
 export interface SpeakOptions {
@@ -24,11 +28,26 @@ export interface SpeakOptions {
 
 const hasTTS = () => typeof window !== "undefined" && "speechSynthesis" in window;
 
+function pickVoice(list: SpeechSynthesisVoice[], online: boolean): SpeechSynthesisVoice | null {
+  const pool = online ? list : list.filter((v) => v.localService);
+  for (const name of PREFERRED_VOICES) {
+    const v = pool.find((x) => x.name === name);
+    if (v) return v;
+  }
+  return (
+    pool.find((v) => v.lang === "en-US" && /google/i.test(v.name)) ??
+    pool.find((v) => v.lang === "en-US") ??
+    pool.find(isEnglish) ??
+    null
+  );
+}
+
 export function useTTS() {
   const [status, setStatus] = useState<TTSStatus>("idle");
   const [supported, setSupported] = useState(true);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const voiceRef = useRef<SpeechSynthesisVoice | null>(null);
+  const voicesRef = useRef<SpeechSynthesisVoice[]>([]);
 
   const utterRef = useRef<SpeechSynthesisUtterance | null>(null);
   const textRef = useRef("");
@@ -44,30 +63,26 @@ export function useTTS() {
       return;
     }
 
+    const repick = () => {
+      voiceRef.current = pickVoice(voicesRef.current, navigator.onLine);
+    };
+
     const load = () => {
       const list = window.speechSynthesis.getVoices();
       if (!list.length) return;
+      voicesRef.current = list;
       setVoices(list);
-
-      // Chọn giọng tốt nhất
-      let best: SpeechSynthesisVoice | undefined;
-      for (const name of PREFERRED_VOICES) {
-        best = list.find((v) => v.name === name);
-        if (best) break;
-      }
-      // fallback: giọng en-US bất kỳ, ưu tiên "Google"
-      if (!best) {
-        best =
-          list.find((v) => v.lang === "en-US" && /google/i.test(v.name)) ||
-          list.find((v) => v.lang.startsWith("en"));
-      }
-      voiceRef.current = best ?? null;
+      repick();
     };
 
     load();
     window.speechSynthesis.onvoiceschanged = load;
+    window.addEventListener("online", repick);
+    window.addEventListener("offline", repick);
     return () => {
       window.speechSynthesis.onvoiceschanged = null;
+      window.removeEventListener("online", repick);
+      window.removeEventListener("offline", repick);
     };
   }, []);
 
@@ -116,6 +131,16 @@ export function useTTS() {
     };
     u.onerror = (e) => {
       if (!isCurrent()) return;
+      
+      if (NETWORK_ERRORS.has(e.error) && voice && !voice.localService) {
+        const local = pickVoice(voicesRef.current, false);
+        if (local) {
+          voiceRef.current = local; // các lần sau dùng luôn, có mạng lại sẽ tự đổi về
+          start(text, { ...opts, voice: local }, offset);
+          return;
+        }
+      }
+
       finish();
       if (e.error !== "interrupted" && e.error !== "canceled") opts.onEnd?.();
     };

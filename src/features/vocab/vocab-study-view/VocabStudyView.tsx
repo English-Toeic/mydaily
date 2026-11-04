@@ -20,14 +20,15 @@ interface Props {
   deck: Deck;
   onBack: () => void;
   onGrade: (word: Word, correct: boolean) => Promise<Word>;
+  onAccept?: (word: Word, key: string, text: string) => Promise<Word>;
   onOpenPassages?: () => void;
 }
 
 const noop = () => {};
 
-export function VocabStudyView({ deck, onBack, onGrade, onOpenPassages }: Props) {
+export function VocabStudyView({ deck, onBack, onGrade, onAccept, onOpenPassages }: Props) {
   const { speak, speaking } = useTTS();
-  const s = useStudySession({ deck, onGrade, speak });
+  const s = useStudySession({ deck, onGrade, onAccept, speak });
   const practice = usePracticeFlow(s);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -47,6 +48,7 @@ export function VocabStudyView({ deck, onBack, onGrade, onOpenPassages }: Props)
         speaking={speaking}
         autoSpeak={s.autoSpeak}
         onDone={practice.finish}
+        onAccept={onAccept}
       />
     );
   }

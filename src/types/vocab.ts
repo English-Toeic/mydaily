@@ -1,6 +1,8 @@
 // src/types/vocab.ts
 export type WordStatus = "new" | "learning" | "learned";
 
+export type AcceptedMap = Record<string, string[]>;
+
 export interface Word {
   id: number;
   deck_id: number;
@@ -10,6 +12,7 @@ export interface Word {
   status: WordStatus;
   correct_count: number; // số lần đúng liên tiếp → đủ thì learned
   sentences: Sentence[];
+  accepted?: AcceptedMap;
 }
 
 export interface Deck {

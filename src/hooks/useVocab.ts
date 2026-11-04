@@ -1,7 +1,7 @@
 // src/hooks/useVocab.ts
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import type { Deck, Sentence, Word, WordFields, WordStatus } from "@/types/vocab";
+import type { AcceptedMap, Deck, Sentence, Word, WordFields, WordStatus } from "@/types/vocab";
 import { enqueue, listOps, syncOutbox, withOutboxLock, type OutboxItem } from "@/lib/offline/outbox";
 import { readCache, usePersistedCache } from "@/lib/offline/cache";
 
@@ -17,17 +17,46 @@ function getErrorMessage(err: unknown): string {
   return "Lỗi không xác định";
 }
 
+/** jsonb có thể bị sửa tay → chỉ giữ dạng { key: string[] } */
+function sanitizeAccepted(raw: unknown): AcceptedMap {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: AcceptedMap = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (Array.isArray(v)) out[k] = v.filter((s): s is string => typeof s === "string" && !!s.trim());
+  }
+  return out;
+}
+
 function applyPending(decks: Deck[], items: OutboxItem[]): Deck[] {
   const grades = new Map<number, { status: WordStatus; correct_count: number }>();
-  for (const { op } of items) if (op.type === "word.grade") grades.set(op.wordId, op);
-  if (!grades.size) return decks;
+  const accepts = new Map<number, { key: string; text: string }[]>();
+
+  for (const { op } of items) {
+    if (op.type === "word.grade") grades.set(op.wordId, op);
+    else if (op.type === "word.accept") {
+      const list = accepts.get(op.wordId) ?? [];
+      list.push({ key: op.key, text: op.text });
+      accepts.set(op.wordId, list);
+    }
+  }
+  if (!grades.size && !accepts.size) return decks;
+
   return decks.map((d) => ({
     ...d,
     words: d.words.map((w) => {
+      let next = w;
       const g = grades.get(w.id);
-      return g ? { ...w, status: g.status, correct_count: g.correct_count } : w;
+      if (g) next = { ...next, status: g.status, correct_count: g.correct_count };
+      for (const { key, text } of accepts.get(w.id) ?? []) next = addAccepted(next, key, text);
+      return next;
     }),
   }));
+}
+
+function addAccepted(w: Word, key: string, text: string): Word {
+  const list = w.accepted?.[key] ?? [];
+  if (list.includes(text)) return w;
+  return { ...w, accepted: { ...(w.accepted ?? {}), [key]: [...list, text] } };
 }
 
 
@@ -68,6 +97,7 @@ export function useVocab() {
       const words = wordRows.map((w) => ({
         ...w,
         sentences: Array.isArray(w.sentences) ? w.sentences : [],
+        accepted: sanitizeAccepted(w.accepted),
       })) as Word[];
       const decksData: Deck[] = (deckRows as DeckRow[]).map((d) => ({
         ...d,
@@ -88,7 +118,7 @@ export function useVocab() {
   }, [fetchAll]);
 
   /** Cập nhật kết quả 1 từ sau khi trả lời */
-   const gradeWord = useCallback(
+  const gradeWord = useCallback(
     async (word: Word, correct: boolean): Promise<Word> => {
       const correct_count = correct ? word.correct_count + 1 : 0;
       const status: WordStatus =
@@ -114,6 +144,22 @@ export function useVocab() {
     },
     []
   );
+
+  const acceptAnswer = useCallback(async (word: Word, key: string, raw: string): Promise<Word> => {
+    const text = raw.trim().slice(0, 300); // khớp left(btrim(...), 300) trong SQL
+    if (!/^(en|vi|s[0-9]+)$/.test(key) || !text) return word;
+
+    setDecks((prev) =>
+      prev.map((d) =>
+        d.id !== word.deck_id
+          ? d
+          : { ...d, words: d.words.map((w) => (w.id === word.id ? addAccepted(w, key, text) : w)) }
+      )
+    );
+
+    await enqueue({ type: "word.accept", wordId: word.id, key, text });
+    return addAccepted(word, key, text);
+  }, []);
 
   // ---- DECK ----
   const addDeck = useCallback(
@@ -360,6 +406,7 @@ export function useVocab() {
     updateWord,
     deleteWord,
     addWordsBulk,
-    moveWords
+    moveWords,
+    acceptAnswer
   };
 }

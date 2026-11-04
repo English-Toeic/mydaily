@@ -99,11 +99,14 @@ function matchOne(a: string, variants: string[], lang: Lang): AnswerCheck {
 }
 
 /** Bản chấm chi tiết, có kèm lời giải thích */
-export function gradeAnswer(input: string, answer: string, lang: Lang): AnswerCheck {
+export function gradeAnswer(input: string, answer: string, lang: Lang, extra: readonly string[] = []): AnswerCheck {
   const a = normalize(input, lang);
   if (!a) return { verdict: "wrong" };
 
-  const variants = answerVariants(answer, lang);
+  const variants = [...new Set([
+    ...answerVariants(answer, lang),
+    ...extra.map((e) => normalize(e, lang)).filter(Boolean),
+  ])];
   const whole = matchOne(a, variants, lang);
   if (whole.verdict === "correct") return whole;
 
