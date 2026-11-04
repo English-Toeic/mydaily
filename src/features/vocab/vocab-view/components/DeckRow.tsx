@@ -83,13 +83,13 @@ export function DeckRow({ deck, depth, counts, hasKids, isOpen, path, onSelect, 
 
       <div className={cn(ACTION_COL, "flex justify-end")}>
         {!hasKids && counts.total > 0 && (
-          <>
+          <div className="flex items-center gap-2">
             <Button
               size="sm"
               variant={allLearned ? "outline" : "default"}
               onClick={onStudy}
               aria-label={`${allLearned ? "Ôn" : "Học"} ${deck.name}`}
-              className="h-8 rounded-lg px-3"
+              className="h-8 rounded-lg px-3 mr-2"
             >
               {allLearned ? "Ôn" : "Học"}
             </Button>
@@ -97,16 +97,15 @@ export function DeckRow({ deck, depth, counts, hasKids, isOpen, path, onSelect, 
             {passageCount > 0 && (
               <Button 
                 size="sm" 
-                variant="outline" 
                 onClick={onOpenPassages} 
                 aria-label={`Hội thoại & bài nói của ${deck.name} (${passageCount})`}
                 title="Hội thoại & bài nói"
                 className="h-8 rounded-lg px-2.5">
                 <MessagesSquare className="size-4" />
-                Hội thoại & bài nói ({passageCount})
+                 ({passageCount})
               </Button>
             )}
-          </>
+          </div>
         )}
       </div>
     </div>

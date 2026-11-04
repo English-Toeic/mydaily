@@ -10,7 +10,7 @@ export function MobileNav({ view, onNavigate }: Props) {
       aria-label="Điều hướng"
       className="fixed inset-x-0 bottom-0 z-30 border-t bg-background/85 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden"
     >
-      <ul className="mx-auto grid max-w-md grid-cols-4">
+      <ul className="mx-auto grid max-w-md grid-cols-5">
         {NAV_ITEMS.map((item) => {
           const active = item.activeOn.includes(view.name);
           const Icon = item.icon;

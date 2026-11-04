@@ -19,4 +19,4 @@ export const STATUS: StatusMeta[] = [
 
 /** Cột số liệu: header và từng dòng phải cùng độ rộng để thẳng hàng */
 export const COL = "w-10 shrink-0 text-center sm:w-12";
-export const ACTION_COL = "w-14 shrink-0";
+export const ACTION_COL = "w-35 shrink-0";
