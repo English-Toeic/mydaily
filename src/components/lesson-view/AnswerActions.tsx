@@ -1,6 +1,7 @@
 import { ChevronRight, Eye, PartyPopper } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
+import type { ReactNode } from "react";
 
 type Props = {
   isAnswered: boolean;
@@ -10,6 +11,7 @@ type Props = {
   onCheck: () => void;
   onNext: () => void;
   onGiveUp: () => void;
+  mic?: ReactNode;
 };
 
 const EnterHint = () => (
@@ -17,7 +19,7 @@ const EnterHint = () => (
 );
 
 export function AnswerActions({
-  isAnswered, willComplete, canCheck, canGiveUp, onCheck, onNext, onGiveUp,
+  isAnswered, willComplete, canCheck, canGiveUp, onCheck, onNext, onGiveUp, mic
 }: Props) {
   if (isAnswered) {
     return (
@@ -48,6 +50,7 @@ export function AnswerActions({
           <Eye className="mr-1 size-4" /> Xem đáp án
         </Button>
       )}
+      {mic}
       <Button size="lg" onClick={onCheck} disabled={!canCheck} className="h-12 flex-1 rounded-xl text-base">
         Kiểm tra <EnterHint />
       </Button>

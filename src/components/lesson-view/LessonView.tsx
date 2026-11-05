@@ -1,7 +1,11 @@
+import { useEffect } from "react";
 import { Inbox } from "lucide-react";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
+import { MicButton } from "@/components/MicButton";
 import { useTTS } from "@/hooks/useTTS";
+import { useSpeechInput } from "@/hooks/useSpeechInput";
+import { cn } from "@/lib/utils";
 import { useLessonSession } from "./useLessonSession";
 import { useLessonHotkeys } from "./useLessonHotkeys";
 import { LessonHeader } from "./LessonHeader";
@@ -14,24 +18,67 @@ import { StepNav } from "./StepNav";
 import { SentenceJumper } from "./SentenceJumper";
 import { CompletionCard } from "./CompletionCard";
 import type { LessonViewProps } from "./types";
-import { useEffect } from "react";
 
 export function LessonView(props: LessonViewProps) {
   const { lesson, onBack } = props;
-  const { speak, stop, togglePause, status } = useTTS();
+  const { speak, stop: stopTTS, togglePause, status } = useTTS();
   const s = useLessonSession({ ...props, speak });
 
+  const speech = useSpeechInput({
+    lang: "en-US",
+    onText: (text) => s.setAnswer(text),
+  });
+  const { abort: abortSpeech } = speech;
+  const practicing = s.view === "practice" && !!s.sentence;
+
+  // Sang câu khác, đã trả lời, hoặc rời màn luyện thì tắt mic
+  useEffect(() => {
+    abortSpeech();
+  }, [abortSpeech, s.step, s.isAnswered, s.view]);
+
+  useEffect(() => {
+    if (s.view !== "practice") stopTTS();
+  }, [s.view, stopTTS]);
+
+  const toggleMic = () => {
+    if (speech.listening) {
+      speech.stop();
+      return;
+    }
+    stopTTS(); // tránh mic thu lại giọng máy đọc
+    speech.start();
+  };
+
+  // Nghe lại thì tắt mic trước
+  const replay = () => {
+    abortSpeech();
+    s.replay();
+  };
+
+  // Kiểm tra thì tắt mic, tránh kết quả đến trễ ghi đè câu vừa nộp
+  const check = () => {
+    abortSpeech();
+    s.check();
+  };
+
+  const primary = () => {
+    if (!s.isAnswered) abortSpeech();
+    s.primary();
+  };
+
+  // Người học tự gõ thì tắt mic
+  const handleAnswer = (value: string) => {
+    if (speech.listening) abortSpeech();
+    s.setAnswer(value);
+  };
+
   useLessonHotkeys({
-    enabled: s.view === "practice" && !!s.sentence,
-    onEnter: s.primary,
-    onReplay: s.replay,
+    enabled: practicing,
+    onEnter: primary,
+    onReplay: replay,
     onTogglePause: togglePause,
     canTogglePause: status !== "idle",
   });
-
-  useEffect(() => {
-    if (s.view !== "practice") stop();
-  }, [s.view, stop]);
 
   const enterLabel = s.isAnswered
     ? s.willComplete ? "xem kết quả" : "câu tiếp theo"
@@ -75,7 +122,7 @@ export function LessonView(props: LessonViewProps) {
                   status={status}
                   emphasized={!s.isAnswered}
                   enterLabel={enterLabel}
-                  onPlay={s.replay}
+                  onPlay={replay}
                   onTogglePause={togglePause}
                 />
 
@@ -83,26 +130,53 @@ export function LessonView(props: LessonViewProps) {
                   <RevealedAnswer
                     sentence={s.sentence}
                     status={s.status as "correct" | "revealed"}
-                    onReplay={s.replay}
+                    onReplay={replay}
                   />
                 )}
 
-                <AnswerInput
-                  value={s.answer}
-                  status={s.status}
-                  hint={s.hint}
-                  attempt={s.attempts}
-                  focusKey={s.step}
-                  onChange={s.setAnswer}
-                  answers={s.sentence.english}
-                />
+                {/* relative + nhãn absolute: hiện/ẩn trạng thái mic không làm nhấp nhô layout */}
+                <div className="relative">
+                  <AnswerInput
+                    value={s.answer}
+                    status={s.status}
+                    hint={s.hint}
+                    attempt={s.attempts}
+                    focusKey={s.step}
+                    onChange={handleAnswer}
+                    answers={s.sentence.english}
+                  />
+                  {!s.isAnswered && (speech.listening || speech.error) && (
+                    <p
+                      role="status"
+                      aria-live="polite"
+                      className={cn(
+                        "pointer-events-none absolute -top-5 right-1 flex items-center gap-1.5 text-xs",
+                        speech.error ? "text-destructive" : "text-muted-foreground",
+                      )}
+                    >
+                      {speech.listening && !speech.error && (
+                        <span className="size-2 animate-pulse rounded-full bg-red-500 motion-reduce:animate-none" />
+                      )}
+                      {speech.error ?? "Đang nghe…"}
+                    </p>
+                  )}
+                </div>
 
                 <AnswerActions
                   isAnswered={s.isAnswered}
                   willComplete={s.willComplete}
                   canCheck={s.answer.trim().length > 0}
                   canGiveUp={s.canGiveUp}
-                  onCheck={s.check}
+                  mic={
+                    speech.supported ? (
+                      <MicButton
+                        listening={speech.listening}
+                        onClick={toggleMic}
+                        className="size-12 rounded-xl"
+                      />
+                    ) : undefined
+                  }
+                  onCheck={check}
                   onNext={s.next}
                   onGiveUp={s.giveUp}
                 />

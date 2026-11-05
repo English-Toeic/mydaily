@@ -6,22 +6,31 @@ import { cn } from "@/lib/utils";
 interface Props {
   listening: boolean;
   disabled?: boolean;
+  className?: string;
   onClick: () => void;
 }
 
-export function MicButton({ listening, disabled, onClick }: Props) {
+export function MicButton({ listening, disabled, className, onClick }: Props) {
+  const label = listening ? "Dừng nghe" : "Nói để nhập";
+
   return (
     <Button
-      variant={listening ? "destructive" : "outline"}
       {...keepInputFocus}
-      onClick={onClick}
+      type="button"
+      size="icon"
+      variant={listening ? "destructive" : "outline"}
       disabled={disabled}
+      onClick={onClick}
+      aria-label={label}
       aria-pressed={listening}
-      aria-label={listening ? "Dừng nghe" : "Nói để nhập"}
-      title={listening ? "Dừng nghe" : "Nói để nhập"}
-      className={cn("h-12 rounded-xl px-4 touch-manipulation", listening && "animate-pulse")}
+      title={label}
+      className={cn(
+        "shrink-0",
+        listening && "animate-pulse motion-reduce:animate-none",
+        className
+      )}
     >
-      {listening ? <Square className="size-4 fill-current" /> : <Mic className="size-4" />}
+      {listening ? <Square className="size-4 fill-current" /> : <Mic className="size-5" />}
     </Button>
   );
 }
