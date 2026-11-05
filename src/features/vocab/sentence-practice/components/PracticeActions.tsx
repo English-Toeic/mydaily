@@ -3,12 +3,14 @@ import { ChevronRight, Lightbulb } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { keepInputFocus } from "@/lib/keepInputFocus";
 import type { Phase } from "../lib/session";
+import type { ReactNode } from "react";
 
 interface Props {
   phase: Phase;
   hinted: boolean;
   canCheck: boolean;
   isLast: boolean;
+  mic?: ReactNode;
   onHint: () => void;
   onGiveUp: () => void;
   onCheck: () => void;
@@ -16,7 +18,7 @@ interface Props {
 }
 
 export function PracticeActions({
-  phase, hinted, canCheck, isLast, onHint, onGiveUp, onCheck, onNext,
+  phase, hinted, canCheck, isLast, mic, onHint, onGiveUp, onCheck, onNext,
 }: Props) {
   if (phase === "checked") {
     return (
@@ -52,6 +54,7 @@ export function PracticeActions({
       >
         Không biết
       </Button>
+      {mic}
       <Button
         {...keepInputFocus}
         onClick={onCheck}

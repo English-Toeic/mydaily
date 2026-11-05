@@ -11,6 +11,9 @@ import { PracticeActions } from "./components/PracticeActions";
 import { ShortcutHints } from "./components/ShortcutHints";
 import { PracticeSummary } from "./components/PracticeSummary";
 import { useCtrlTap } from "../useCtrlTap";
+import { useSpeechInput } from "@/hooks/useSpeechInput";
+import { cn } from "@/lib/utils";
+import { MicButton } from "@/components/MicButton";
 
 interface Props {
   word: Word;
@@ -36,6 +39,28 @@ function PracticeSession({ word, speak, speaking, autoSpeak, onAccept, onDone }:
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const checked = state.phase === "checked";
   const best = state.graded?.best ?? "";
+
+   const speech = useSpeechInput({
+    lang: "en-US",
+    onText: (text) => actions.setInput(text),
+  });
+  const { abort: abortSpeech } = speech;
+
+  // Đã kiểm tra hoặc sang câu mới thì tắt mic
+  useEffect(() => {
+    abortSpeech();
+  }, [abortSpeech, state.index, checked]);
+
+  const toggleMic = () => {
+    if (speech.listening) speech.stop();
+    else speech.start();
+  };
+
+  // Người học tự gõ thì tắt mic, tránh giọng nói ghi đè chữ vừa gõ
+  const handleInput = (value: string) => {
+    if (speech.listening) abortSpeech();
+    actions.setInput(value);
+  };
 
   // Ctrl: nghe lại đáp án (chỉ sau khi đã kiểm tra, tránh lộ đáp án)
   useCtrlTap(() => {
@@ -73,10 +98,23 @@ function PracticeSession({ word, speak, speaking, autoSpeak, onAccept, onDone }:
           verdict={state.verdict}
           checked={checked}
           shaking={state.shaking}
-          onChange={actions.setInput}
+          onChange={handleInput}
           onSubmit={checked ? actions.next : actions.check}
           onShakeEnd={actions.shakeEnd}
         />
+
+        {(speech.listening || speech.error) && (
+          <span
+            aria-live="polite"
+            className={cn(
+              "pointer-events-none absolute -top-2.5 right-3 flex items-center gap-1.5 rounded-full border bg-background px-2 py-0.5 text-xs",
+              speech.error ? "text-destructive" : "text-muted-foreground"
+            )}
+          >
+            {speech.listening && <span className="size-1.5 animate-pulse rounded-full bg-destructive" />}
+            {speech.error ?? "Đang nghe…"}
+          </span>
+        )}
 
         {state.phase === "retry" && state.retryInfo && (
           <RetryFeedback info={state.retryInfo} target={word.english} onGiveUp={actions.giveUp} />
@@ -106,6 +144,11 @@ function PracticeSession({ word, speak, speaking, autoSpeak, onAccept, onDone }:
         onGiveUp={actions.giveUp}
         onCheck={actions.check}
         onNext={actions.next}
+        mic={
+          speech.supported ? (
+            <MicButton listening={speech.listening} disabled={speaking} onClick={toggleMic} />
+          ) : undefined
+        }
       />
 
       <ShortcutHints checked={checked} />
