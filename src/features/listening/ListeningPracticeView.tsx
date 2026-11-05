@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import {
-  ArrowLeft, Check, ChevronRight, ImageOff, Pause, Play, RotateCcw, Shuffle, X,
+  ArrowLeft, Check, ChevronRight, ImageOff, Keyboard, Pause, Play, RotateCcw, Shuffle, X,
+  type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { gradeText, sumGrades, type TextGrade } from "@/lib/textDiff";
 import {
   CHOICE_KEYS,
   isChoiceKey,
@@ -26,14 +28,30 @@ interface Props {
 }
 
 type Phase = "setup" | "play" | "done";
+type Texts = Record<ChoiceKey, string>;
+type Grades = Partial<Record<ChoiceKey, TextGrade>>;
+
 interface Answer {
   question: ListeningQuestion;
   picked: ChoiceKey;
+  /** null khi tắt chế độ chép */
+  grades: Grades | null;
 }
 
 const SHUFFLE_KEY = "listening:shuffle";
 const RATE_KEY = "listening:rate";
+const TYPE_KEY = "listening:type";
 const RATES = [0.5, 0.75, 1, 1.25] as const;
+const DIGIT_CODES = ["Digit1", "Digit2", "Digit3", "Digit4"];
+
+const emptyTexts = (): Texts => Object.fromEntries(CHOICE_KEYS.map((k) => [k, ""])) as Texts;
+
+const gradesOf = (g: Grades | null): TextGrade[] =>
+  g ? Object.values(g).filter((x): x is TextGrade => !!x) : [];
+
+/** Chọn sai, hoặc chép chưa đúng hết một đáp án nào đó */
+const needsReview = (a: Answer) =>
+  a.picked !== a.question.correct || gradesOf(a.grades).some((g) => !g.exact);
 
 function shuffled<T>(arr: readonly T[]): T[] {
   const a = [...arr];
@@ -59,9 +77,12 @@ export function ListeningPracticeView({ set, questions, onBack, onStart, onAnswe
   const [queue, setQueue] = useState<ListeningQuestion[]>([]);
   const [index, setIndex] = useState(0);
   const [picked, setPicked] = useState<ChoiceKey | null>(null);
+  const [texts, setTexts] = useState<Texts>(emptyTexts);
+  const [checked, setChecked] = useState(false);
   const [answers, setAnswers] = useState<Answer[]>([]);
 
   const [shuffle, setShuffle] = useState(() => readStorage(SHUFFLE_KEY, true, (s) => s === "1"));
+  const [typeMode, setTypeMode] = useState(() => readStorage(TYPE_KEY, true, (s) => s === "1"));
   const [rate, setRate] = useState(() =>
     readStorage<number>(RATE_KEY, 1, (s) => (RATES.includes(Number(s) as never) ? Number(s) : null))
   );
@@ -70,62 +91,111 @@ export function ListeningPracticeView({ set, questions, onBack, onStart, onAnswe
     setShuffle(v);
     localStorage.setItem(SHUFFLE_KEY, v ? "1" : "0");
   };
+  const changeTypeMode = (v: boolean) => {
+    setTypeMode(v);
+    localStorage.setItem(TYPE_KEY, v ? "1" : "0");
+  };
   const changeRate = (r: number) => {
     setRate(r);
     localStorage.setItem(RATE_KEY, String(r));
   };
 
   const current = queue[index] as ListeningQuestion | undefined;
+  const currentAnswer = checked ? answers[answers.length - 1] : undefined;
+
+  const resetQuestion = () => {
+    setPicked(null);
+    setTexts(emptyTexts());
+    setChecked(false);
+  };
 
   const start = (list: ListeningQuestion[]) => {
     if (!list.length) return;
     setQueue(shuffle ? shuffled(list) : list);
     setIndex(0);
-    setPicked(null);
+    resetQuestion();
     setAnswers([]);
     setPhase("play");
     onStart();
     onActivity?.();
   };
 
-  const choose = (key: ChoiceKey) => {
-    if (!current || picked) return;
+  const submit = (key: ChoiceKey) => {
+    if (!current || checked) return;
+    const grades: Grades | null = typeMode
+      ? Object.fromEntries(current.choices.map((c) => [c.key, gradeText(c.en, texts[c.key] ?? "")]))
+      : null;
     setPicked(key);
-    setAnswers((prev) => [...prev, { question: current, picked: key }]);
+    setChecked(true);
+    setAnswers((prev) => [...prev, { question: current, picked: key, grades }]);
     onAnswer(current);
     onActivity?.();
   };
 
+  /** Chế độ chép: chỉ đánh dấu lựa chọn, đổi được. Chế độ thường: chấm luôn */
+  const choose = (key: ChoiceKey) => {
+    if (checked) return;
+    if (!typeMode) {
+      submit(key);
+      return;
+    }
+    setPicked(key);
+    onActivity?.();
+  };
+
+  const check = () => {
+    if (picked) submit(picked);
+  };
+
   const next = () => {
-    if (!picked) return;
+    if (!checked) return;
     onActivity?.();
     if (index + 1 >= queue.length) {
       setPhase("done");
       return;
     }
     setIndex((i) => i + 1);
-    setPicked(null);
+    resetQuestion();
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  // Phím tắt: A-D hoặc 1-4 để chọn, Enter để sang câu tiếp
+  // Phím tắt:
+  //  - A-D / 1-4 (khi không ở ô nhập), Alt+1-4 (mọi lúc): chọn đáp án
+  //  - Enter: kiểm tra / sang câu tiếp
   useEffect(() => {
     if (phase !== "play") return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const target = e.target instanceof HTMLElement ? e.target : null;
+      const inField = !!target?.closest("input, textarea, [contenteditable='true']");
+
+      // Dùng e.code vì trên macOS, Alt+số sinh ra ký tự đặc biệt
+      if (e.altKey && !e.ctrlKey && !e.metaKey) {
+        const i = DIGIT_CODES.indexOf(e.code);
+        if (i >= 0 && !checked) {
+          e.preventDefault();
+          choose(CHOICE_KEYS[i]);
+        }
+        return;
+      }
+      if (e.ctrlKey || e.metaKey) return;
+
+      if (e.key === "Enter") {
+        if (inField) return; // ô nhập tự xử lý Enter
+        // Nút đang focus tự nhận Enter (tránh chuyển 2 câu một lúc); riêng nút A-D thì Enter = kiểm tra
+        if (target?.closest("button") && !target.closest("[data-choice]")) return;
+        e.preventDefault();
+        if (checked) next();
+        else check();
+        return;
+      }
+
+      if (inField || checked) return;
       const upper = e.key.toUpperCase();
       const numIdx = ["1", "2", "3", "4"].indexOf(e.key);
       const key = isChoiceKey(upper) ? upper : numIdx >= 0 ? CHOICE_KEYS[numIdx] : null;
-      if (key && !picked) {
+      if (key) {
         e.preventDefault();
         choose(key);
-        return;
-      }
-      if (e.key === "Enter" && picked) {
-        // Nút đang focus sẽ tự nhận Enter, tránh chuyển 2 câu một lúc
-        if (e.target instanceof HTMLElement && e.target.closest("button")) return;
-        e.preventDefault();
-        next();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -133,7 +203,8 @@ export function ListeningPracticeView({ set, questions, onBack, onStart, onAnswe
   });
 
   const isLast = index + 1 >= queue.length;
-  const isCorrect = picked !== null && current && picked === current.correct;
+  const isCorrect = checked && picked !== null && current && picked === current.correct;
+  const currentStats = currentAnswer?.grades ? sumGrades(gradesOf(currentAnswer.grades)) : null;
 
   return (
     <div className="space-y-5">
@@ -152,6 +223,8 @@ export function ListeningPracticeView({ set, questions, onBack, onStart, onAnswe
           questions={questions}
           shuffle={shuffle}
           onShuffleChange={changeShuffle}
+          typeMode={typeMode}
+          onTypeModeChange={changeTypeMode}
           onStart={start}
         />
       )}
@@ -165,7 +238,7 @@ export function ListeningPracticeView({ set, questions, onBack, onStart, onAnswe
             <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
               <div
                 className="h-full bg-primary transition-all"
-                style={{ width: `${((index + (picked ? 1 : 0)) / queue.length) * 100}%` }}
+                style={{ width: `${((index + (checked ? 1 : 0)) / queue.length) * 100}%` }}
               />
             </div>
           </div>
@@ -180,18 +253,57 @@ export function ListeningPracticeView({ set, questions, onBack, onStart, onAnswe
             onPlay={onActivity}
           />
 
-          <ChoiceList question={current} picked={picked} onPick={choose} />
+          {typeMode && !checked ? (
+            <>
+              <ChoiceInputs
+                key={`inputs-${index}`}
+                texts={texts}
+                picked={picked}
+                onTextChange={(k, v) => setTexts((prev) => ({ ...prev, [k]: v }))}
+                onPick={choose}
+                onSubmit={check}
+              />
+              <div className="flex items-center gap-3">
+                <p className="flex-1 text-xs text-muted-foreground">
+                  {picked ? (
+                    <>
+                      Đã chọn <b className="text-foreground">{picked}</b>. Nhấn Enter hoặc bấm Kiểm tra
+                    </>
+                  ) : (
+                    "Bấm nút A–D (hoặc Alt+1–4) để chọn đáp án đúng"
+                  )}
+                </p>
+                <Button onClick={check} disabled={!picked}>
+                  Kiểm tra
+                </Button>
+              </div>
+            </>
+          ) : (
+            <ChoiceList
+              question={current}
+              picked={checked ? picked : null}
+              grades={currentAnswer?.grades ?? null}
+              onPick={choose}
+            />
+          )}
 
-          {picked && (
+          {checked && picked && (
             <div className="flex items-center gap-3">
-              <p
-                className={cn(
-                  "flex-1 text-sm font-medium",
-                  isCorrect ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
+              <div className="flex-1 space-y-0.5 text-sm">
+                <p
+                  className={cn(
+                    "font-medium",
+                    isCorrect ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
+                  )}
+                >
+                  {isCorrect ? "Chính xác!" : `Sai rồi, đáp án đúng là ${current.correct}`}
+                </p>
+                {currentStats && (
+                  <p className="text-muted-foreground tabular-nums">
+                    Chép đúng {currentStats.matched}/{currentStats.total} từ ({currentStats.pct}%)
+                  </p>
                 )}
-              >
-                {isCorrect ? "Chính xác!" : `Sai rồi, đáp án đúng là ${current.correct}`}
-              </p>
+              </div>
               <Button onClick={next} autoFocus>
                 {isLast ? "Xem kết quả" : "Câu tiếp"}
                 <ChevronRight className="size-4" />
@@ -204,7 +316,7 @@ export function ListeningPracticeView({ set, questions, onBack, onStart, onAnswe
       {phase === "done" && (
         <ResultScreen
           answers={answers}
-          onRetryWrong={(list) => start(list)}
+          onRetry={(list) => start(list)}
           onRestart={() => setPhase("setup")}
           onBack={onBack}
         />
@@ -215,12 +327,55 @@ export function ListeningPracticeView({ set, questions, onBack, onStart, onAnswe
 
 // ======================= Màn chuẩn bị =======================
 
+function ToggleRow({
+  icon: Icon, label, hint, checked, onChange,
+}: {
+  icon: LucideIcon;
+  label: string;
+  hint?: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={checked}
+      onClick={() => onChange(!checked)}
+      className={cn(
+        "flex w-full items-center gap-3 rounded-xl border p-3 text-left transition",
+        checked ? "border-primary/50 bg-primary/5" : "hover:bg-muted/50"
+      )}
+    >
+      <Icon className={cn("size-5 shrink-0", checked ? "text-primary" : "text-muted-foreground")} />
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium">{label}</span>
+        {hint && <span className="block text-xs text-muted-foreground">{hint}</span>}
+      </span>
+      <span
+        className={cn(
+          "relative h-5 w-9 shrink-0 rounded-full transition-colors",
+          checked ? "bg-primary" : "bg-muted-foreground/30"
+        )}
+      >
+        <span
+          className={cn(
+            "absolute top-0.5 size-4 rounded-full bg-white shadow transition-all",
+            checked ? "left-4.5" : "left-0.5"
+          )}
+        />
+      </span>
+    </button>
+  );
+}
+
 function SetupScreen({
-  questions, shuffle, onShuffleChange, onStart,
+  questions, shuffle, onShuffleChange, typeMode, onTypeModeChange, onStart,
 }: {
   questions: ListeningQuestion[];
   shuffle: boolean;
   onShuffleChange: (v: boolean) => void;
+  typeMode: boolean;
+  onTypeModeChange: (v: boolean) => void;
   onStart: (list: ListeningQuestion[]) => void;
 }) {
   const unlearned = questions.filter((q) => !q.learned_at);
@@ -260,31 +415,16 @@ function SetupScreen({
         ))}
       </div>
 
-      <button
-        type="button"
-        aria-pressed={shuffle}
-        onClick={() => onShuffleChange(!shuffle)}
-        className={cn(
-          "flex w-full items-center gap-3 rounded-xl border p-3 text-left transition",
-          shuffle ? "border-primary/50 bg-primary/5" : "hover:bg-muted/50"
-        )}
-      >
-        <Shuffle className={cn("size-5", shuffle ? "text-primary" : "text-muted-foreground")} />
-        <span className="flex-1 text-sm font-medium">Xáo trộn thứ tự câu</span>
-        <span
-          className={cn(
-            "relative h-5 w-9 rounded-full transition-colors",
-            shuffle ? "bg-primary" : "bg-muted-foreground/30"
-          )}
-        >
-          <span
-            className={cn(
-              "absolute top-0.5 size-4 rounded-full bg-white shadow transition-all",
-              shuffle ? "left-4.5" : "left-0.5"
-            )}
-          />
-        </span>
-      </button>
+      <div className="space-y-2">
+        <ToggleRow icon={Shuffle} label="Xáo trộn thứ tự câu" checked={shuffle} onChange={onShuffleChange} />
+        <ToggleRow
+          icon={Keyboard}
+          label="Chép lời đáp án"
+          hint="Gõ lại lời 4 đáp án A–D trước khi chọn, chấm cả chính tả"
+          checked={typeMode}
+          onChange={onTypeModeChange}
+        />
+      </div>
 
       {unlearned.length === 0 && (
         <p className="text-center text-sm text-emerald-600 dark:text-emerald-400">
@@ -296,6 +436,301 @@ function SetupScreen({
         <Play className="size-4" />
         Bắt đầu ({list.length} câu)
       </Button>
+    </div>
+  );
+}
+
+// ======================= Ảnh & Audio =======================
+// QuestionImage và AudioPlayer: GIỮ NGUYÊN như code hiện tại
+
+// ======================= Nhập lời đáp án =======================
+
+function ChoiceInputs({
+  texts, picked, onTextChange, onPick, onSubmit,
+}: {
+  texts: Texts;
+  picked: ChoiceKey | null;
+  onTextChange: (k: ChoiceKey, v: string) => void;
+  onPick: (k: ChoiceKey) => void;
+  onSubmit: () => void;
+}) {
+  const refs = useRef<(HTMLInputElement | null)[]>([]);
+
+  return (
+    <ul className="space-y-2">
+      {CHOICE_KEYS.map((k, i) => (
+        <li key={k} className="flex items-center gap-2">
+          <button
+            type="button"
+            data-choice
+            aria-pressed={picked === k}
+            aria-label={`Chọn đáp án ${k}`}
+            onClick={() => onPick(k)}
+            className={cn(
+              "flex size-11 shrink-0 items-center justify-center rounded-xl border-2 text-lg font-bold transition active:scale-95",
+              picked === k
+                ? "border-primary bg-primary text-primary-foreground"
+                : "bg-card hover:border-primary hover:bg-primary/5"
+            )}
+          >
+            {k}
+          </button>
+          <input
+            ref={(el) => {
+              refs.current[i] = el;
+            }}
+            autoFocus={i === 0}
+            value={texts[k]}
+            onChange={(e) => onTextChange(k, e.target.value)}
+            onKeyDown={(e) => {
+              // isComposing: đang gõ dở bằng bộ gõ tiếng Việt / IME
+              if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+              e.preventDefault();
+              const nextInput = refs.current[i + 1];
+              if (nextInput) nextInput.focus();
+              else onSubmit();
+            }}
+            placeholder={`Chép lời đáp án ${k}`}
+            aria-label={`Lời đáp án ${k}`}
+            autoComplete="off"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            className="h-11 min-w-0 flex-1 rounded-xl border bg-background px-3 text-sm outline-none transition placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30"
+          />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+// ======================= Hiển thị phần đã chép =======================
+
+function TypedLine({ grade }: { grade: TextGrade }) {
+  if (grade.exact) {
+    return (
+      <p className="mt-1 flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+        <Check className="size-3.5" /> Chép đúng
+      </p>
+    );
+  }
+
+  const typedAny = grade.tokens.some((t) => t.kind !== "miss");
+  return (
+    <p className="mt-1.5 rounded-lg bg-background/70 px-2 py-1 text-sm leading-relaxed">
+      <span className="mr-1.5 text-xs text-muted-foreground">Bạn chép:</span>
+      {typedAny ? (
+        grade.tokens.map((t, i) => (
+          <Fragment key={i}>
+            <span
+              className={cn(
+                t.kind === "extra" && "text-red-600 line-through decoration-2 dark:text-red-400",
+                t.kind === "miss" &&
+                  "rounded bg-amber-500/15 px-1 text-amber-700 underline decoration-dotted dark:text-amber-400"
+              )}
+            >
+              {t.text}
+            </span>{" "}
+          </Fragment>
+        ))
+      ) : (
+        <span className="italic text-muted-foreground">bỏ trống</span>
+      )}
+      <span className="ml-1 text-xs tabular-nums text-muted-foreground">({grade.pct}%)</span>
+    </p>
+  );
+}
+
+// ======================= Đáp án =======================
+
+function ChoiceList({
+  question, picked, grades, onPick,
+}: {
+  question: ListeningQuestion;
+  picked: ChoiceKey | null;
+  grades: Grades | null;
+  onPick: (k: ChoiceKey) => void;
+}) {
+  // Chế độ thường, chưa chọn: chỉ hiện 4 nút A B C D
+  if (!picked) {
+    return (
+      <div className="grid grid-cols-2 gap-3">
+        {CHOICE_KEYS.map((k) => (
+          <button
+            key={k}
+            type="button"
+            onClick={() => onPick(k)}
+            className="h-16 rounded-xl border-2 bg-card text-2xl font-bold transition hover:border-primary hover:bg-primary/5 active:scale-[0.98]"
+          >
+            {k}
+          </button>
+        ))}
+      </div>
+    );
+  }
+
+  // Đã chấm: hiện text EN + VI của 4 đáp án, kèm phần đã chép
+  return (
+    <div className="space-y-2">
+      <ul className="space-y-2">
+        {question.choices.map((c) => {
+          const correct = c.key === question.correct;
+          const wrongPick = c.key === picked && !correct;
+          const grade = grades?.[c.key];
+          return (
+            <li
+              key={c.key}
+              className={cn(
+                "flex items-start gap-3 rounded-xl border-2 p-3",
+                correct
+                  ? "border-emerald-500 bg-emerald-500/10"
+                  : wrongPick
+                    ? "border-red-500 bg-red-500/10"
+                    : "border-transparent bg-muted/40"
+              )}
+            >
+              <span
+                className={cn(
+                  "flex size-8 shrink-0 items-center justify-center rounded-full text-sm font-bold",
+                  correct
+                    ? "bg-emerald-500 text-white"
+                    : wrongPick
+                      ? "bg-red-500 text-white"
+                      : "bg-muted text-muted-foreground"
+                )}
+              >
+                {correct ? <Check className="size-4" /> : wrongPick ? <X className="size-4" /> : c.key}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="font-medium">
+                  <span className="text-muted-foreground">{c.key}.</span> {c.en}
+                </p>
+                {c.vi && <p className="text-sm text-muted-foreground">{c.vi}</p>}
+                {grade && <TypedLine grade={grade} />}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+      {grades && (
+        <p className="text-xs text-muted-foreground">
+          <span className="text-red-600 line-through dark:text-red-400">gạch đỏ</span>: từ sai hoặc thừa ·{" "}
+          <span className="rounded bg-amber-500/15 px-1 text-amber-700 dark:text-amber-400">nền vàng</span>: từ còn thiếu
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ======================= Tổng kết =======================
+
+function ResultScreen({
+  answers, onRetry, onRestart, onBack,
+}: {
+  answers: Answer[];
+  onRetry: (list: ListeningQuestion[]) => void;
+  onRestart: () => void;
+  onBack: () => void;
+}) {
+  const review = answers.filter(needsReview);
+  const correct = answers.filter((a) => a.picked === a.question.correct).length;
+  const pct = answers.length ? Math.round((correct / answers.length) * 100) : 0;
+  const allGrades = answers.flatMap((a) => gradesOf(a.grades));
+  const typing = allGrades.length ? sumGrades(allGrades) : null;
+
+  const tone = (p: number) => (p >= 80 ? "text-emerald-600" : p >= 50 ? "text-amber-600" : "text-red-600");
+
+  return (
+    <div className="space-y-5">
+      <div className={cn("grid gap-3", typing && "grid-cols-2")}>
+        <div className="rounded-2xl border bg-card p-6 text-center shadow-sm">
+          <p className="text-sm text-muted-foreground">Chọn đáp án</p>
+          <p className={cn("text-4xl font-bold tabular-nums", tone(pct))}>
+            {correct}/{answers.length}
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">Đúng {pct}%</p>
+        </div>
+        {typing && (
+          <div className="rounded-2xl border bg-card p-6 text-center shadow-sm">
+            <p className="text-sm text-muted-foreground">Chép chính tả</p>
+            <p className={cn("text-4xl font-bold tabular-nums", tone(typing.pct))}>{typing.pct}%</p>
+            <p className="mt-1 text-sm text-muted-foreground tabular-nums">
+              {typing.matched}/{typing.total} từ
+            </p>
+          </div>
+        )}
+      </div>
+
+      {review.length > 0 && (
+        <div className="space-y-2">
+          <h2 className="text-sm font-semibold">Cần xem lại ({review.length})</h2>
+          <ul className="space-y-2">
+            {review.map(({ question: q, picked, grades }) => {
+              const right = q.choices.find((c) => c.key === q.correct);
+              const mine = q.choices.find((c) => c.key === picked);
+              const pickWrong = picked !== q.correct;
+              const typos = q.choices.flatMap((c) => {
+                const g = grades?.[c.key];
+                return g && !g.exact ? [{ choice: c, grade: g }] : [];
+              });
+
+              return (
+                <li key={q.id} className="flex gap-3 rounded-xl border bg-card p-3">
+                  {q.image_url && (
+                    <img
+                      src={q.image_url}
+                      alt=""
+                      referrerPolicy="no-referrer"
+                      className="size-16 shrink-0 rounded-lg object-cover"
+                    />
+                  )}
+                  <div className="min-w-0 flex-1 space-y-1 text-sm">
+                    {pickWrong ? (
+                      <>
+                        <p className="text-red-600 dark:text-red-400">
+                          Bạn chọn {picked}. {mine?.en}
+                        </p>
+                        <p className="font-medium text-emerald-600 dark:text-emerald-400">
+                          Đúng {q.correct}. {right?.en}
+                        </p>
+                      </>
+                    ) : (
+                      <p className="font-medium text-emerald-600 dark:text-emerald-400">
+                        Chọn đúng {q.correct}. {right?.en}
+                      </p>
+                    )}
+                    {right?.vi && <p className="text-muted-foreground">{right.vi}</p>}
+
+                    {typos.map(({ choice, grade }) => (
+                      <div key={choice.key} className="border-t pt-1.5">
+                        <p className="text-muted-foreground">
+                          <b className="text-foreground">{choice.key}.</b> {choice.en}
+                        </p>
+                        <TypedLine grade={grade} />
+                      </div>
+                    ))}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+
+      <div className="flex flex-col gap-2 sm:flex-row">
+        {review.length > 0 && (
+          <Button className="flex-1" onClick={() => onRetry(review.map((a) => a.question))}>
+            <RotateCcw className="size-4" />
+            Làm lại {review.length} câu
+          </Button>
+        )}
+        <Button className="flex-1" variant="outline" onClick={onRestart}>
+          Học lượt mới
+        </Button>
+        <Button className="flex-1" variant="ghost" onClick={onBack}>
+          Về danh sách
+        </Button>
+      </div>
     </div>
   );
 }
@@ -432,156 +867,6 @@ function AudioPlayer({
             ))}
           </div>
         </div>
-      </div>
-    </div>
-  );
-}
-
-// ======================= Đáp án =======================
-
-function ChoiceList({
-  question, picked, onPick,
-}: {
-  question: ListeningQuestion;
-  picked: ChoiceKey | null;
-  onPick: (k: ChoiceKey) => void;
-}) {
-  // Chưa chọn: chỉ hiện 4 nút A B C D
-  if (!picked) {
-    return (
-      <div className="grid grid-cols-2 gap-3">
-        {CHOICE_KEYS.map((k) => (
-          <button
-            key={k}
-            type="button"
-            onClick={() => onPick(k)}
-            className="h-16 rounded-xl border-2 bg-card text-2xl font-bold transition hover:border-primary hover:bg-primary/5 active:scale-[0.98]"
-          >
-            {k}
-          </button>
-        ))}
-      </div>
-    );
-  }
-
-  // Đã chọn: hiện text EN + VI của cả 4 đáp án
-  return (
-    <ul className="space-y-2">
-      {question.choices.map((c) => {
-        const correct = c.key === question.correct;
-        const wrongPick = c.key === picked && !correct;
-        return (
-          <li
-            key={c.key}
-            className={cn(
-              "flex items-start gap-3 rounded-xl border-2 p-3",
-              correct
-                ? "border-emerald-500 bg-emerald-500/10"
-                : wrongPick
-                  ? "border-red-500 bg-red-500/10"
-                  : "border-transparent bg-muted/40"
-            )}
-          >
-            <span
-              className={cn(
-                "flex size-8 shrink-0 items-center justify-center rounded-full text-sm font-bold",
-                correct
-                  ? "bg-emerald-500 text-white"
-                  : wrongPick
-                    ? "bg-red-500 text-white"
-                    : "bg-muted text-muted-foreground"
-              )}
-            >
-              {correct ? <Check className="size-4" /> : wrongPick ? <X className="size-4" /> : c.key}
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="font-medium">
-                <span className="text-muted-foreground">{c.key}.</span> {c.en}
-              </p>
-              {c.vi && <p className="text-sm text-muted-foreground">{c.vi}</p>}
-            </div>
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
-// ======================= Tổng kết =======================
-
-function ResultScreen({
-  answers, onRetryWrong, onRestart, onBack,
-}: {
-  answers: Answer[];
-  onRetryWrong: (list: ListeningQuestion[]) => void;
-  onRestart: () => void;
-  onBack: () => void;
-}) {
-  const wrong = answers.filter((a) => a.picked !== a.question.correct);
-  const correct = answers.length - wrong.length;
-  const pct = answers.length ? Math.round((correct / answers.length) * 100) : 0;
-
-  return (
-    <div className="space-y-5">
-      <div className="rounded-2xl border bg-card p-6 text-center shadow-sm">
-        <p className="text-sm text-muted-foreground">Kết quả</p>
-        <p
-          className={cn(
-            "text-5xl font-bold tabular-nums",
-            pct >= 80 ? "text-emerald-600" : pct >= 50 ? "text-amber-600" : "text-red-600"
-          )}
-        >
-          {correct}/{answers.length}
-        </p>
-        <p className="mt-1 text-sm text-muted-foreground">Đúng {pct}%</p>
-      </div>
-
-      {wrong.length > 0 && (
-        <div className="space-y-2">
-          <h2 className="text-sm font-semibold">Câu sai ({wrong.length})</h2>
-          <ul className="space-y-2">
-            {wrong.map(({ question: q, picked }) => {
-              const right = q.choices.find((c) => c.key === q.correct);
-              const mine = q.choices.find((c) => c.key === picked);
-              return (
-                <li key={q.id} className="flex gap-3 rounded-xl border bg-card p-3">
-                  {q.image_url && (
-                    <img
-                      src={q.image_url}
-                      alt=""
-                      referrerPolicy="no-referrer"
-                      className="size-16 shrink-0 rounded-lg object-cover"
-                    />
-                  )}
-                  <div className="min-w-0 flex-1 space-y-1 text-sm">
-                    <p className="text-red-600 dark:text-red-400">
-                      Bạn chọn {picked}. {mine?.en}
-                    </p>
-                    <p className="font-medium text-emerald-600 dark:text-emerald-400">
-                      Đúng {q.correct}. {right?.en}
-                    </p>
-                    {right?.vi && <p className="text-muted-foreground">{right.vi}</p>}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      )}
-
-      <div className="flex flex-col gap-2 sm:flex-row">
-        {wrong.length > 0 && (
-          <Button className="flex-1" onClick={() => onRetryWrong(wrong.map((a) => a.question))}>
-            <RotateCcw className="size-4" />
-            Làm lại câu sai
-          </Button>
-        )}
-        <Button className="flex-1" variant="outline" onClick={onRestart}>
-          Học lượt mới
-        </Button>
-        <Button className="flex-1" variant="ghost" onClick={onBack}>
-          Về danh sách
-        </Button>
       </div>
     </div>
   );
