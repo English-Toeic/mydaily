@@ -14,6 +14,7 @@ import {
   type ListeningScope,
   type ListeningSet,
 } from "@/types/listening";
+import { keepInputFocus } from "@/lib/keepInputFocus";
 
 interface Props {
   set: ListeningSet;
@@ -761,6 +762,12 @@ function QuestionImage({ src }: { src: string }) {
 }
 
 // ======================= Audio =======================
+function formatTime(s: number) {
+  if (!Number.isFinite(s) || s < 0) s = 0;
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return `${m}:${String(sec).padStart(2, "0")}`;
+}
 
 function AudioPlayer({
   src, rate, onRateChange, onPlay,
@@ -772,7 +779,8 @@ function AudioPlayer({
 }) {
   const ref = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
-  const [progress, setProgress] = useState(0);
+  const [current, setCurrent] = useState(0);
+  const [duration, setDuration] = useState(0);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
@@ -788,10 +796,22 @@ function AudioPlayer({
     return () => a?.pause();
   }, []);
 
+   const syncDuration = (a: HTMLAudioElement) => {
+    // Một số file (stream, Drive...) báo duration = Infinity/NaN
+    setDuration(Number.isFinite(a.duration) ? a.duration : 0);
+  };
+
+  const seek = (t: number) => {
+    const a = ref.current;
+    if (!a) return;
+    a.currentTime = t;
+    setCurrent(t); // cập nhật ngay, tránh thanh tua giật về vị trí cũ
+  };
+
   const play = (fromStart: boolean) => {
     const a = ref.current;
     if (!a) return;
-    if (fromStart) a.currentTime = 0;
+    if (fromStart) seek(0);
     a.playbackRate = rate;
     void a.play().catch(() => {}); // lỗi tải file được xử lý ở onError
   };
@@ -814,21 +834,21 @@ function AudioPlayer({
           onPlay?.();
         }}
         onPause={() => setPlaying(false)}
-        onEnded={() => {
+        onEnded={(e) => {
           setPlaying(false);
-          setProgress(1);
+          setCurrent(e.currentTarget.duration || 0);
         }}
-        onTimeUpdate={(e) => {
-          const a = e.currentTarget;
-          setProgress(a.duration ? a.currentTime / a.duration : 0);
-        }}
+        onTimeUpdate={(e) => setCurrent(e.currentTarget.currentTime)}
         onLoadedMetadata={(e) => {
           e.currentTarget.playbackRate = rate;
+          syncDuration(e.currentTarget);
         }}
+        onDurationChange={(e) => syncDuration(e.currentTarget)}
         onError={() => setFailed(true)}
       />
 
       <Button
+        {...keepInputFocus}
         size="icon"
         className="size-12 shrink-0 rounded-full"
         onClick={toggle}
@@ -842,12 +862,15 @@ function AudioPlayer({
         {failed ? (
           <p className="text-sm text-destructive">Không tải được audio, kiểm tra lại link</p>
         ) : (
-          <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-            <div className="h-full bg-primary transition-[width] duration-200" style={{ width: `${progress * 100}%` }} />
+          <div className="flex items-center gap-2">
+            <SeekBar current={current} duration={duration} onSeek={seek} />
+            <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+              {formatTime(current)} / {formatTime(duration)}
+            </span>
           </div>
         )}
         <div className="flex flex-wrap items-center gap-1">
-          <Button variant="ghost" size="sm" onClick={() => play(true)} disabled={failed}>
+          <Button {...keepInputFocus}  variant="ghost" size="sm" onClick={() => play(true)} disabled={failed}>
             <RotateCcw className="size-4" />
             Nghe lại
           </Button>
@@ -868,6 +891,127 @@ function AudioPlayer({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ======================= Thanh tua =======================
+
+const SEEK_STEP = 2; // giây, cho phím ←/→
+
+function SeekBar({
+  current, duration, onSeek,
+}: {
+  current: number;
+  duration: number;
+  onSeek: (t: number) => void;
+}) {
+  const trackRef = useRef<HTMLDivElement>(null);
+  const draggingRef = useRef(false);
+  const [drag, setDrag] = useState<number | null>(null); // thời điểm đang kéo tới (giây)
+  const [hover, setHover] = useState<number | null>(null); // thời điểm chuột đang rê (giây)
+
+  const ready = duration > 0;
+  const shown = drag ?? current;
+  const pctOf = (t: number) => (ready ? Math.min(100, Math.max(0, (t / duration) * 100)) : 0);
+  const tip = drag ?? hover;
+
+  const timeAt = (clientX: number) => {
+    const el = trackRef.current;
+    if (!el || !ready) return 0;
+    const r = el.getBoundingClientRect();
+    const ratio = Math.min(1, Math.max(0, (clientX - r.left) / r.width));
+    return ratio * duration;
+  };
+
+  const endDrag = () => {
+    draggingRef.current = false;
+    setDrag(null);
+  };
+
+  return (
+    <div
+      ref={trackRef}
+      role="slider"
+      tabIndex={ready ? 0 : -1}
+      aria-label="Tua audio"
+      aria-disabled={!ready}
+      aria-valuemin={0}
+      aria-valuemax={Math.round(duration)}
+      aria-valuenow={Math.round(shown)}
+      aria-valuetext={`${formatTime(shown)} / ${formatTime(duration)}`}
+      {...keepInputFocus} // bấm vào thanh tua không lấy focus khỏi ô đang gõ
+      onPointerDown={(e) => {
+        if (!ready || e.button !== 0) return;
+        e.currentTarget.setPointerCapture(e.pointerId);
+        draggingRef.current = true;
+        setDrag(timeAt(e.clientX));
+      }}
+      onPointerMove={(e) => {
+        const t = timeAt(e.clientX);
+        if (draggingRef.current) setDrag(t);
+        if (e.pointerType === "mouse") setHover(t);
+      }}
+      onPointerUp={(e) => {
+        if (!draggingRef.current) return;
+        onSeek(timeAt(e.clientX)); // chỉ tua 1 lần khi thả tay, tránh tải lại audio liên tục
+        endDrag();
+      }}
+      onPointerCancel={endDrag}
+      onPointerLeave={() => setHover(null)}
+      onKeyDown={(e) => {
+        if (!ready) return;
+        const map: Record<string, number> = {
+          ArrowLeft: current - SEEK_STEP,
+          ArrowDown: current - SEEK_STEP,
+          ArrowRight: current + SEEK_STEP,
+          ArrowUp: current + SEEK_STEP,
+          Home: 0,
+          End: duration,
+        };
+        if (!(e.key in map)) return;
+        e.preventDefault();
+        onSeek(Math.min(duration, Math.max(0, map[e.key])));
+      }}
+      className={cn(
+        "group/seek relative flex h-6 min-w-0 flex-1 touch-none select-none items-center rounded-full outline-none",
+        "focus-visible:ring-3 focus-visible:ring-ring/30",
+        ready ? "cursor-pointer" : "cursor-default opacity-60"
+      )}
+    >
+      {/* Rãnh */}
+      <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-muted transition-[height] group-hover/seek:h-2">
+        {/* Vị trí chuột đang rê */}
+        {hover !== null && drag === null && (
+          <div className="absolute inset-y-0 left-0 bg-primary/20" style={{ width: `${pctOf(hover)}%` }} />
+        )}
+        <div
+          className={cn("absolute inset-y-0 left-0 bg-primary", drag === null && "transition-[width] duration-200")}
+          style={{ width: `${pctOf(shown)}%` }}
+        />
+      </div>
+
+      {/* Nút kéo */}
+      {ready && (
+        <div
+          className={cn(
+            "pointer-events-none absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-primary bg-background shadow transition-[width,height]",
+            drag !== null ? "size-4" : "size-3 group-hover/seek:size-3.5",
+            drag === null && "transition-[left,width,height] duration-200"
+          )}
+          style={{ left: `${pctOf(shown)}%` }}
+        />
+      )}
+
+      {/* Tooltip thời gian */}
+      {ready && tip !== null && (
+        <div
+          className="pointer-events-none absolute bottom-full mb-1 -translate-x-1/2 rounded bg-foreground px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-background"
+          style={{ left: `${pctOf(tip)}%` }}
+        >
+          {formatTime(tip)}
+        </div>
+      )}
     </div>
   );
 }
