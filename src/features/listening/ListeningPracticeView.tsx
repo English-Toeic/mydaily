@@ -81,7 +81,7 @@ export function ListeningPracticeView({ set, questions, onBack, onStart, onAnswe
   const [texts, setTexts] = useState<Texts>(emptyTexts);
   const [checked, setChecked] = useState(false);
   const [answers, setAnswers] = useState<Answer[]>([]);
-
+  const [attempt, setAttempt] = useState(0);
   const [shuffle, setShuffle] = useState(() => readStorage(SHUFFLE_KEY, true, (s) => s === "1"));
   const [typeMode, setTypeMode] = useState(() => readStorage(TYPE_KEY, true, (s) => s === "1"));
   const [rate, setRate] = useState(() =>
@@ -160,6 +160,16 @@ export function ListeningPracticeView({ set, questions, onBack, onStart, onAnswe
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  const retry = () => {
+    if (!checked) return;
+    // Câu vừa chấm luôn là phần tử cuối của answers → bỏ đi, lần làm lại sẽ ghi đè
+    setAnswers((prev) => prev.slice(0, -1));
+    resetQuestion();
+    setAttempt((n) => n + 1);
+    onActivity?.();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   // Phím tắt:
   //  - A-D / 1-4 (khi không ở ô nhập), Alt+1-4 (mọi lúc): chọn đáp án
   //  - Enter: kiểm tra / sang câu tiếp
@@ -187,6 +197,12 @@ export function ListeningPracticeView({ set, questions, onBack, onStart, onAnswe
         e.preventDefault();
         if (checked) next();
         else check();
+        return;
+      }
+
+       if (checked && !inField && e.key.toLowerCase() === "r") {
+        e.preventDefault();
+        retry();
         return;
       }
 
@@ -247,7 +263,7 @@ export function ListeningPracticeView({ set, questions, onBack, onStart, onAnswe
           {current.image_url && <QuestionImage key={`img-${current.id}`} src={current.image_url} />}
 
           <AudioPlayer
-            key={`audio-${current.id}`}
+            key={`${current.id}-${attempt}`}
             src={current.audio_url}
             rate={rate}
             onRateChange={changeRate}
@@ -289,26 +305,33 @@ export function ListeningPracticeView({ set, questions, onBack, onStart, onAnswe
           )}
 
           {checked && picked && (
-            <div className="flex items-center gap-3">
-              <div className="flex-1 space-y-0.5 text-sm">
-                <p
-                  className={cn(
-                    "font-medium",
-                    isCorrect ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
-                  )}
-                >
+            <div
+              className={cn(
+                "flex flex-wrap items-center gap-3 rounded-xl border p-3",
+                isCorrect ? "border-emerald-500/40 bg-emerald-500/5" : "border-red-500/40 bg-red-500/5"
+              )}
+            >
+              <div className="min-w-0 flex-1">
+                <p className={cn("font-semibold", isCorrect ? "text-emerald-600" : "text-red-600")}>
                   {isCorrect ? "Chính xác!" : `Sai rồi, đáp án đúng là ${current.correct}`}
                 </p>
                 {currentStats && (
-                  <p className="text-muted-foreground tabular-nums">
+                  <p className="text-sm text-muted-foreground">
                     Chép đúng {currentStats.matched}/{currentStats.total} từ ({currentStats.pct}%)
                   </p>
                 )}
               </div>
-              <Button onClick={next} autoFocus>
-                {isLast ? "Xem kết quả" : "Câu tiếp"}
-                <ChevronRight className="size-4" />
-              </Button>
+
+              <div className="flex shrink-0 gap-2">
+                <Button variant="outline" onClick={retry} title="Học lại câu này (phím R)">
+                  <RotateCcw className="size-4" />
+                  Học lại
+                </Button>
+                <Button onClick={next} autoFocus>
+                  {isLast ? "Xem kết quả" : "Câu tiếp"}
+                  <ChevronRight className="size-4" />
+                </Button>
+              </div>
             </div>
           )}
         </div>
