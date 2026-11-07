@@ -287,7 +287,7 @@ export function ListeningPracticeView({ set, questions, onBack, onStart, onAnswe
                       Đã chọn <b className="text-foreground">{picked}</b>. Nhấn Enter hoặc bấm Kiểm tra
                     </>
                   ) : (
-                    "Bấm nút A–D (hoặc Alt+1–4) để chọn đáp án đúng"
+                    "Bấm nút A–D (hoặc Alt+1–4) để chọn đáp án đúng · Ctrl+Space: phát/dừng"
                   )}
                 </p>
                 <Button onClick={check} disabled={!picked}>
@@ -819,7 +819,7 @@ function AudioPlayer({
     return () => a?.pause();
   }, []);
 
-   const syncDuration = (a: HTMLAudioElement) => {
+  const syncDuration = (a: HTMLAudioElement) => {
     // Một số file (stream, Drive...) báo duration = Infinity/NaN
     setDuration(Number.isFinite(a.duration) ? a.duration : 0);
   };
@@ -845,6 +845,38 @@ function AudioPlayer({
     if (a.paused) play(false);
     else a.pause();
   };
+
+  // Phím tắt phát/dừng:
+  //  - Space: khi không ở ô nhập
+  //  - Ctrl+Space: mọi lúc (kể cả đang chép trong ô nhập)
+  useEffect(() => {
+    if (failed) return;
+
+    const isSpace = (e: KeyboardEvent) => e.code === "Space" || e.key === " ";
+    const inField = (t: EventTarget | null) =>
+      t instanceof HTMLElement && !!t.closest("input, textarea, select, [contenteditable='true']");
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!isSpace(e) || e.altKey || e.metaKey || e.shiftKey || e.isComposing) return;
+      if (inField(e.target) && !e.ctrlKey) return; // trong ô nhập: Space để gõ dấu cách
+      e.preventDefault(); // chặn cuộn trang & chặn nút đang focus tự bấm
+      if (e.repeat) return; // giữ phím không bật/tắt liên tục
+      toggle();
+    };
+
+    // Nút đang focus sẽ tự "click" khi nhả Space (Firefox), nên chặn luôn ở keyup
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (!isSpace(e) || inField(e.target)) return;
+      if (e.target instanceof HTMLElement && e.target.closest("button")) e.preventDefault();
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+    };
+  });
 
   return (
     <div className="flex items-center gap-3 rounded-xl border bg-card p-3">
@@ -877,6 +909,8 @@ function AudioPlayer({
         onClick={toggle}
         disabled={failed}
         aria-label={playing ? "Tạm dừng" : "Phát"}
+        title={playing ? "Dừng (Space)" : "Phát (Space)"}
+        aria-keyshortcuts="Space Control+Space"
       >
         {playing ? <Pause className="size-5" /> : <Play className="size-5 translate-x-px" />}
       </Button>
