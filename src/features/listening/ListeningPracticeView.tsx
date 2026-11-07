@@ -847,34 +847,49 @@ function AudioPlayer({
   };
 
   // Phím tắt phát/dừng:
-  //  - Space: khi không ở ô nhập
-  //  - Ctrl+Space: mọi lúc (kể cả đang chép trong ô nhập)
+  //  - Space: chỉ khi KHÔNG ở ô nhập (trong ô nhập Space để gõ dấu cách)
+  //  - Esc, Alt+K, Ctrl+Space: dùng được mọi lúc, kể cả khi đang gõ
   useEffect(() => {
     if (failed) return;
 
+    const noMods = (e: KeyboardEvent) => !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey;
     const isSpace = (e: KeyboardEvent) => e.code === "Space" || e.key === " ";
     const inField = (t: EventTarget | null) =>
       t instanceof HTMLElement && !!t.closest("input, textarea, select, [contenteditable='true']");
 
+    // Các tổ hợp dùng được cả trong ô nhập
+    const isGlobalToggle = (e: KeyboardEvent) =>
+      (e.key === "Escape" && noMods(e)) ||
+      // Dùng e.code để Option+K trên Mac (vốn gõ ra "˚") vẫn nhận đúng
+      (e.code === "KeyK" && e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) ||
+      (isSpace(e) && e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey);
+
     const onKeyDown = (e: KeyboardEvent) => {
-      if (!isSpace(e) || e.altKey || e.metaKey || e.shiftKey || e.isComposing) return;
-      if (inField(e.target) && !e.ctrlKey) return; // trong ô nhập: Space để gõ dấu cách
-      e.preventDefault(); // chặn cuộn trang & chặn nút đang focus tự bấm
+      // Bỏ qua khi bộ gõ đang ghép chữ (keyCode 229 = IME đang xử lý)
+      if (e.isComposing || e.keyCode === 229) return;
+
+      const field = inField(e.target);
+      const plainSpace = isSpace(e) && noMods(e) && !field;
+      if (!plainSpace && !isGlobalToggle(e)) return;
+
+      e.preventDefault();   // không gõ ký tự, không cuộn trang, không bấm nút đang focus
+      e.stopPropagation();  // không để handler khác (ô nhập, view chính) xử lý tiếp
       if (e.repeat) return; // giữ phím không bật/tắt liên tục
       toggle();
     };
 
-    // Nút đang focus sẽ tự "click" khi nhả Space (Firefox), nên chặn luôn ở keyup
+    // Firefox tự "click" nút đang focus khi nhả Space, nên chặn ở keyup
     const onKeyUp = (e: KeyboardEvent) => {
       if (!isSpace(e) || inField(e.target)) return;
       if (e.target instanceof HTMLElement && e.target.closest("button")) e.preventDefault();
     };
 
-    window.addEventListener("keydown", onKeyDown);
-    window.addEventListener("keyup", onKeyUp);
+    // capture: true để bắt phím TRƯỚC khi ô nhập hoặc handler khác xử lý
+    window.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("keyup", onKeyUp, true);
     return () => {
-      window.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("keyup", onKeyUp, true);
     };
   });
 
