@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import {
-  ArrowLeft, Check, ChevronRight, ImageOff, Keyboard, Pause, Play, RotateCcw, Shuffle, X,
+  ArrowLeft, Check, ChevronRight, ImageOff, Keyboard, Pause, Play, Rewind, RotateCcw, Shuffle, X,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -792,6 +792,8 @@ function formatTime(s: number) {
   return `${m}:${String(sec).padStart(2, "0")}`;
 }
 
+const REWIND_STEP = 5; // giây
+
 function AudioPlayer({
   src, rate, onRateChange, onPlay,
 }: {
@@ -846,6 +848,14 @@ function AudioPlayer({
     else a.pause();
   };
 
+  /** Lùi 5 giây rồi phát tiếp (kể cả khi đang dừng hoặc đã phát hết) */
+  const rewind = () => {
+    const a = ref.current;
+    if (!a) return;
+    seek(Math.max(0, a.currentTime - REWIND_STEP));
+    play(false);
+  };
+
   // Phím tắt phát/dừng:
   //  - Space: chỉ khi KHÔNG ở ô nhập (trong ô nhập Space để gõ dấu cách)
   //  - Esc, Alt+K, Ctrl+Space: dùng được mọi lúc, kể cả khi đang gõ
@@ -853,29 +863,43 @@ function AudioPlayer({
     if (failed) return;
 
     const noMods = (e: KeyboardEvent) => !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey;
+    const onlyAlt = (e: KeyboardEvent) => e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey;
+    const onlyCtrl = (e: KeyboardEvent) => e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey
     const isSpace = (e: KeyboardEvent) => e.code === "Space" || e.key === " ";
     const inField = (t: EventTarget | null) =>
       t instanceof HTMLElement && !!t.closest("input, textarea, select, [contenteditable='true']");
 
+    const actionOf = (e: KeyboardEvent, field: boolean): (() => void) | null => {
+      // Dùng e.code vì trên Mac, Option+K / Option+J gõ ra ký tự đặc biệt ("˚", "∆")
+      if (e.key === "Escape" && noMods(e)) return toggle;
+      if (onlyAlt(e) && e.code === "KeyK") return toggle;
+      if (onlyCtrl(e) && isSpace(e)) return toggle;
+      if (onlyAlt(e) && e.code === "KeyJ") return rewind;
+
+      if (field || !noMods(e)) return null;
+      if (isSpace(e)) return toggle;
+      if (e.code === "KeyJ") return rewind;
+      return null;
+    };
+
     // Các tổ hợp dùng được cả trong ô nhập
-    const isGlobalToggle = (e: KeyboardEvent) =>
-      (e.key === "Escape" && noMods(e)) ||
-      // Dùng e.code để Option+K trên Mac (vốn gõ ra "˚") vẫn nhận đúng
-      (e.code === "KeyK" && e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) ||
-      (isSpace(e) && e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey);
+    // const isGlobalToggle = (e: KeyboardEvent) =>
+    //   (e.key === "Escape" && noMods(e)) ||
+    //   // Dùng e.code để Option+K trên Mac (vốn gõ ra "˚") vẫn nhận đúng
+    //   (e.code === "KeyK" && e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) ||
+    //   (isSpace(e) && e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey);
 
     const onKeyDown = (e: KeyboardEvent) => {
       // Bỏ qua khi bộ gõ đang ghép chữ (keyCode 229 = IME đang xử lý)
       if (e.isComposing || e.keyCode === 229) return;
 
-      const field = inField(e.target);
-      const plainSpace = isSpace(e) && noMods(e) && !field;
-      if (!plainSpace && !isGlobalToggle(e)) return;
+      const action = actionOf(e, inField(e.target));
+      if (!action) return;
 
       e.preventDefault();   // không gõ ký tự, không cuộn trang, không bấm nút đang focus
       e.stopPropagation();  // không để handler khác (ô nhập, view chính) xử lý tiếp
       if (e.repeat) return; // giữ phím không bật/tắt liên tục
-      toggle();
+      action();
     };
 
     // Firefox tự "click" nút đang focus khi nhả Space, nên chặn ở keyup
@@ -945,6 +969,18 @@ function AudioPlayer({
           <Button {...keepInputFocus}  variant="ghost" size="sm" onClick={() => play(true)} disabled={failed}>
             <RotateCcw className="size-4" />
             Nghe lại
+          </Button>
+          <Button
+            {...keepInputFocus}
+            variant="ghost"
+            size="sm"
+            onClick={rewind}
+            disabled={failed}
+            title={`Lùi ${REWIND_STEP} giây (J · Alt+J)`}
+            aria-keyshortcuts="J Alt+J"
+          >
+            <Rewind className="size-4" />
+            {REWIND_STEP}s
           </Button>
           <div className="ml-auto flex gap-0.5 rounded-md bg-muted p-0.5">
             {RATES.map((r) => (
