@@ -222,6 +222,7 @@ export function ListeningPracticeView({ set, questions, onBack, onStart, onAnswe
   const isLast = index + 1 >= queue.length;
   const isCorrect = checked && picked !== null && current && picked === current.correct;
   const currentStats = currentAnswer?.grades ? sumGrades(gradesOf(currentAnswer.grades)) : null;
+  const hasImage = !!current?.image_url;
 
   return (
     <div className="space-y-5">
@@ -248,92 +249,110 @@ export function ListeningPracticeView({ set, questions, onBack, onStart, onAnswe
 
       {phase === "play" && current && (
         <div className="space-y-4">
-          <div className="flex items-center gap-3 text-sm text-muted-foreground">
-            <span className="tabular-nums">
+          {/* Tiến độ: trải hết chiều ngang */}
+          <div className="space-y-1.5">
+            <div className="text-sm text-muted-foreground">
               Câu {index + 1}/{queue.length}
-            </span>
-            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+            </div>
+            <div className="h-1.5 overflow-hidden rounded-full bg-muted">
               <div
-                className="h-full bg-primary transition-all"
+                className="h-full rounded-full bg-primary transition-all"
                 style={{ width: `${((index + (checked ? 1 : 0)) / queue.length) * 100}%` }}
               />
             </div>
           </div>
 
-          {current.image_url && <QuestionImage key={`img-${current.id}`} src={current.image_url} />}
+          <div
+            className={cn(
+              "grid gap-6",
+              hasImage ? "lg:grid-cols-2 lg:items-start" : "mx-auto w-full max-w-2xl"
+            )}
+          >
+            {/* ===== Cột trái: chỉ ảnh ===== */}
+            {hasImage && (
+              <div className="lg:sticky lg:top-4">
+                <QuestionImage key={current.id} src={current.image_url!} />
+              </div>
+            )}
 
-          <AudioPlayer
-            key={`${current.id}-${attempt}`}
-            src={current.audio_url}
-            rate={rate}
-            onRateChange={changeRate}
-            onPlay={onActivity}
-          />
-
-          {typeMode && !checked ? (
-            <>
-              <ChoiceInputs
-                key={`inputs-${index}`}
-                texts={texts}
-                picked={picked}
-                onTextChange={(k, v) => setTexts((prev) => ({ ...prev, [k]: v }))}
-                onPick={choose}
-                onSubmit={check}
+            {/* ===== Cột phải: audio + đáp án ===== */}
+            <div className="min-w-0 space-y-4">
+              <AudioPlayer
+                key={current.id}
+                src={current.audio_url}
+                rate={rate}
+                onRateChange={changeRate}
+                onPlay={onActivity}
               />
-              <div className="flex items-center gap-3">
-                <p className="flex-1 text-xs text-muted-foreground">
-                  {picked ? (
-                    <>
-                      Đã chọn <b className="text-foreground">{picked}</b>. Nhấn Enter hoặc bấm Kiểm tra
-                    </>
-                  ) : (
-                    "Bấm nút A–D (hoặc Alt+1–4) để chọn đáp án đúng · Ctrl+Space: phát/dừng"
-                  )}
-                </p>
-                <Button onClick={check} disabled={!picked}>
-                  Kiểm tra
-                </Button>
-              </div>
-            </>
-          ) : (
-            <ChoiceList
-              question={current}
-              picked={checked ? picked : null}
-              grades={currentAnswer?.grades ?? null}
-              onPick={choose}
-            />
-          )}
 
-          {checked && picked && (
-            <div
-              className={cn(
-                "flex flex-wrap items-center gap-3 rounded-xl border p-3",
-                isCorrect ? "border-emerald-500/40 bg-emerald-500/5" : "border-red-500/40 bg-red-500/5"
+              {typeMode && !checked ? (
+                <div className="space-y-3">
+                  <ChoiceInputs
+                    key={`${current.id}-${attempt}`}
+                    texts={texts}
+                    picked={picked}
+                    onTextChange={(k, v) => setTexts((prev) => ({ ...prev, [k]: v }))}
+                    onPick={choose}
+                    onSubmit={check}
+                  />
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-xs text-muted-foreground">
+                      {picked ? (
+                        <span>
+                          Đã chọn <b className="text-foreground">{picked}</b>. Nhấn Enter hoặc bấm Kiểm tra
+                        </span>
+                      ) : (
+                        "Bấm A–D (hoặc Alt+1–4) để chọn · Esc: phát/dừng · Alt+J: lùi 5s"
+                      )}
+                    </p>
+                    <Button onClick={check} disabled={!picked} className="shrink-0">
+                      Kiểm tra
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <ChoiceList
+                  question={current}
+                  picked={picked}
+                  grades={currentAnswer?.grades ?? null}
+                  onPick={choose}
+                />
               )}
-            >
-              <div className="min-w-0 flex-1">
-                <p className={cn("font-semibold", isCorrect ? "text-emerald-600" : "text-red-600")}>
-                  {isCorrect ? "Chính xác!" : `Sai rồi, đáp án đúng là ${current.correct}`}
-                </p>
-                {currentStats && (
-                  <p className="text-sm text-muted-foreground">
-                    Chép đúng {currentStats.matched}/{currentStats.total} từ ({currentStats.pct}%)
-                  </p>
-                )}
-              </div>
 
-              <div className="flex shrink-0 gap-2">
-                <Button variant="outline" onClick={retry} title="Học lại câu này (phím R)">
-                  <RotateCcw className="size-4" />
-                  Học lại
-                </Button>
-                <Button onClick={next} autoFocus>
-                  {isLast ? "Xem kết quả" : "Câu tiếp"}
-                  <ChevronRight className="size-4" />
-                </Button>
-              </div>
+              {checked && picked && (
+                <div
+                  className={cn(
+                    "flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4",
+                    isCorrect
+                      ? "border-emerald-500/40 bg-emerald-500/10"
+                      : "border-red-500/40 bg-red-500/10"
+                  )}
+                >
+                  <div>
+                    <p className={cn("font-semibold", isCorrect ? "text-emerald-700" : "text-red-700")}>
+                      {isCorrect ? "Chính xác!" : `Sai rồi, đáp án đúng là ${current.correct}`}
+                    </p>
+                    {currentStats && (
+                      <p className="text-sm text-muted-foreground">
+                        Chép đúng {currentStats.matched}/{currentStats.total} từ ({currentStats.pct}%)
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex gap-2">
+                    <Button variant="outline" onClick={retry} title="Học lại (R)">
+                      <RotateCcw className="size-4" />
+                      Học lại
+                    </Button>
+                    <Button onClick={next} autoFocus>
+                      {isLast ? "Xem kết quả" : "Câu tiếp"}
+                      <ChevronRight className="size-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
-          )}
+          </div>
         </div>
       )}
 
@@ -777,7 +796,7 @@ function QuestionImage({ src }: { src: string }) {
         src={src}
         alt="Ảnh câu hỏi"
         referrerPolicy="no-referrer"
-        className="mx-auto max-h-[45vh] w-full object-contain"
+        className="mx-auto max-h-[45vh] w-full object-contain lg:max-h-[calc(100vh-8rem)]"
         onError={() => setFailed(true)}
       />
     </div>
@@ -948,8 +967,8 @@ function AudioPlayer({
         onClick={toggle}
         disabled={failed}
         aria-label={playing ? "Tạm dừng" : "Phát"}
-        title={playing ? "Dừng (Space)" : "Phát (Space)"}
-        aria-keyshortcuts="Space Control+Space"
+        title={playing ? "Dừng (Space · Esc · Alt+K)" : "Phát (Space · Esc · Alt+K)"}
+        aria-keyshortcuts="Space Escape Alt+K Control+Space"
       >
         {playing ? <Pause className="size-5" /> : <Play className="size-5 translate-x-px" />}
       </Button>
