@@ -646,7 +646,8 @@ function ChoiceList({
               </span>
               <div className="min-w-0 flex-1">
                 <p className="font-medium">
-                  <span className="text-muted-foreground">{c.key}.</span> {c.en}
+                  {/* <span className="text-muted-foreground">{c.key}.</span> */}
+                   {c.en}
                 </p>
                 {c.vi && <p className="text-sm text-muted-foreground">{c.vi}</p>}
                 {grade && <TypedLine grade={grade} />}
